@@ -54,6 +54,18 @@ type Limits struct {
 	// TeamMembers is the maximum users per team (including the owner). -1 means unlimited.
 	// When unset (0) in older YAML, TeamMemberLimit applies built-in defaults per tier.
 	TeamMembers int `yaml:"team_members"`
+
+	// VaultMaxEntries is the maximum number of vault entries per team. -1 means unlimited.
+	// 0 means the vault feature is not available on this tier.
+	VaultMaxEntries int `yaml:"vault_max_entries"`
+
+	// VaultEnvsAllowed is the list of environment names permitted for vault entries.
+	// An empty slice means any env name is allowed (i.e. unlimited custom envs).
+	VaultEnvsAllowed []string `yaml:"vault_envs_allowed"`
+
+	// DeploymentsApps is the maximum number of deployable applications per team.
+	// -1 means unlimited; 0 means deployments are not available on this tier.
+	DeploymentsApps int `yaml:"deployments_apps"`
 }
 
 // Features describes the boolean capabilities unlocked by a plan tier.
@@ -293,6 +305,47 @@ func (r *Registry) IsDedicatedTier(tier string) bool {
 	return r.Get(tier).Features.Dedicated
 }
 
+// CustomDomainsAllowed reports whether the given tier may bind custom
+// hostnames to its stacks. Mirrors the `features.custom_domains` flag in
+// plans.yaml — currently true only for "pro", "team", and "growth".
+func (r *Registry) CustomDomainsAllowed(tier string) bool {
+	return r.Get(tier).Features.CustomDomains
+}
+
+// VaultMaxEntries returns the per-team vault entry cap for the given tier.
+// -1 means unlimited; 0 means vault is not available on this tier.
+func (r *Registry) VaultMaxEntries(tier string) int {
+	p := r.Get(tier)
+	if p == nil {
+		return 0
+	}
+	return p.Limits.VaultMaxEntries
+}
+
+// VaultEnvsAllowed returns the list of allowed env names for vault on the
+// given tier. An empty slice means any env name is allowed (Pro/Team).
+// Returns an empty slice when the plan or limit is missing.
+func (r *Registry) VaultEnvsAllowed(tier string) []string {
+	p := r.Get(tier)
+	if p == nil {
+		return []string{}
+	}
+	if p.Limits.VaultEnvsAllowed == nil {
+		return []string{}
+	}
+	return p.Limits.VaultEnvsAllowed
+}
+
+// DeploymentsAppsLimit returns the max number of deployable apps for the tier.
+// -1 means unlimited; 0 means deployments are not available on this tier.
+func (r *Registry) DeploymentsAppsLimit(tier string) int {
+	p := r.Get(tier)
+	if p == nil {
+		return -1
+	}
+	return p.Limits.DeploymentsApps
+}
+
 // Default returns a Registry built from hardcoded defaults.
 // Used in tests and when plans.yaml is not present (development convenience).
 func Default() *Registry {
@@ -325,6 +378,9 @@ plans:
       storage_storage_mb: 10
       webhook_requests_stored: 100
       team_members: 1
+      vault_max_entries: 0
+      vault_envs_allowed: []
+      deployments_apps: 0
     features:
       alerts: false
       custom_domains: false
@@ -335,9 +391,9 @@ plans:
     trial_days: 14
     limits:
       provisions_per_day: -1
-      postgres_storage_mb: 500
-      postgres_connections: 5
-      redis_memory_mb: 25
+      postgres_storage_mb: 1024
+      postgres_connections: 8
+      redis_memory_mb: 50
       redis_commands_per_day: 10000
       mongodb_storage_mb: 100
       mongodb_connections: 5
@@ -346,6 +402,9 @@ plans:
       storage_storage_mb: 512
       webhook_requests_stored: 1000
       team_members: 1
+      vault_max_entries: 20
+      vault_envs_allowed: ["production"]
+      deployments_apps: 1
     features:
       alerts: true
       custom_domains: false
@@ -367,9 +426,12 @@ plans:
       storage_storage_mb: 10240
       webhook_requests_stored: 10000
       team_members: 5
+      vault_max_entries: 200
+      vault_envs_allowed: []
+      deployments_apps: 10
     features:
       alerts: true
-      custom_domains: false
+      custom_domains: true
       sla: false
   team:
     display_name: "Team"
@@ -388,6 +450,9 @@ plans:
       storage_storage_mb: -1
       webhook_requests_stored: -1
       team_members: -1
+      vault_max_entries: -1
+      vault_envs_allowed: []
+      deployments_apps: -1
     features:
       alerts: true
       custom_domains: true
@@ -398,9 +463,9 @@ plans:
     trial_days: 0
     limits:
       provisions_per_day: -1
-      postgres_storage_mb: -1
-      postgres_connections: -1
-      redis_memory_mb: -1
+      postgres_storage_mb: 5120
+      postgres_connections: 20
+      redis_memory_mb: 256
       redis_commands_per_day: -1
       mongodb_storage_mb: -1
       mongodb_connections: -1
@@ -409,6 +474,9 @@ plans:
       storage_storage_mb: -1
       webhook_requests_stored: -1
       team_members: 10
+      vault_max_entries: 200
+      vault_envs_allowed: []
+      deployments_apps: 5
     features:
       alerts: true
       custom_domains: true
