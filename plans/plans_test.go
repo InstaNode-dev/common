@@ -234,6 +234,29 @@ func TestRegistry_TierHelpers(t *testing.T) {
 	assert.True(t, r.IsDedicatedTier("growth"))
 }
 
+func TestVaultMaxEntries_Tiers(t *testing.T) {
+	r := plans.Default()
+	assert.Equal(t, 0, r.VaultMaxEntries("anonymous"))
+	assert.Equal(t, 20, r.VaultMaxEntries("hobby"))
+	assert.Equal(t, 200, r.VaultMaxEntries("pro"))
+	assert.Equal(t, -1, r.VaultMaxEntries("team"))
+}
+
+func TestVaultEnvsAllowed_HobbyIsProductionOnly(t *testing.T) {
+	r := plans.Default()
+	assert.Equal(t, []string{"production"}, r.VaultEnvsAllowed("hobby"))
+	assert.Empty(t, r.VaultEnvsAllowed("pro"))
+}
+
+func TestDeploymentsAppsLimit_Tiers(t *testing.T) {
+	r := plans.Default()
+	assert.Equal(t, 0, r.DeploymentsAppsLimit("anonymous"))
+	assert.Equal(t, 1, r.DeploymentsAppsLimit("hobby"))
+	assert.Equal(t, 10, r.DeploymentsAppsLimit("pro"))
+	assert.Equal(t, -1, r.DeploymentsAppsLimit("team"))
+	assert.Equal(t, 5, r.DeploymentsAppsLimit("growth"))
+}
+
 // writeTempYAML writes content to a temp file and returns its path.
 func writeTempYAML(t *testing.T, content string) string {
 	t.Helper()
