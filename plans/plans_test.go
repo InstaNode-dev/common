@@ -18,7 +18,7 @@ func TestDefault_LoadsWithoutError(t *testing.T) {
 
 func TestDefault_AllStandardTiersPresent(t *testing.T) {
 	r := plans.Default()
-	for _, tier := range []string{"anonymous", "hobby", "pro", "team", "growth"} {
+	for _, tier := range []string{"anonymous", "free", "hobby", "pro", "team", "growth"} {
 		p := r.Get(tier)
 		assert.Equal(t, tier, p.Name, "tier %q must be in default registry", tier)
 	}
@@ -102,8 +102,8 @@ func TestLoad_InvalidYAML_ReturnsError(t *testing.T) {
 func TestAll_ReturnsAllPlans(t *testing.T) {
 	r := plans.Default()
 	all := r.All()
-	assert.Len(t, all, 5, "default registry must have 5 plans")
-	for _, name := range []string{"anonymous", "hobby", "pro", "team", "growth"} {
+	assert.Len(t, all, 6, "default registry must have 6 plans (anonymous, free, hobby, pro, team, growth)")
+	for _, name := range []string{"anonymous", "free", "hobby", "pro", "team", "growth"} {
 		assert.Contains(t, all, name)
 	}
 }
