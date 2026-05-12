@@ -3,7 +3,8 @@ package logctx
 import (
 	"context"
 	"log/slog"
-	"os"
+
+	"instant.dev/common/buildinfo"
 )
 
 // Field-name constants — never inline these strings in tests or callers.
@@ -17,18 +18,18 @@ const (
 	FieldTeamID   = "team_id"
 )
 
-// commitID returns the build's git SHA. Track 1 of the observability rollout
-// adds a real `instant.dev/common/buildinfo` package whose GitSHA var is set
-// via `-ldflags -X`. Until that package merges, we fall back to the
-// COMMIT_ID env var (set by the Dockerfile / k8s deployment) so this package
-// does not block on track 1. The sentinel "dev" matches the buildinfo
-// package's planned default so log readers see a single consistent value
-// across both implementations.
+// commitID returns the build's git SHA, sourced from
+// `instant.dev/common/buildinfo.GitSHA`. The buildinfo var is set at link
+// time via `-ldflags -X` by the Dockerfiles / CI; un-flagged local builds
+// fall back to the buildinfo sentinel ("dev").
+//
+// Historical note: this used to read os.Getenv("COMMIT_ID") as a
+// decoupling shim from when logctx shipped before buildinfo. Both packages
+// now live on the same module, so we collapse to a direct import. This
+// eliminates the divergence where /healthz returned the real SHA (from
+// buildinfo) but slog lines emitted commit_id="dev" (env var unset).
 func commitID() string {
-	if v := os.Getenv("COMMIT_ID"); v != "" {
-		return v
-	}
-	return "dev"
+	return buildinfo.GitSHA
 }
 
 // Handler wraps an underlying slog.Handler and injects the five mandatory
