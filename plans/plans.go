@@ -385,6 +385,35 @@ plans:
       alerts: false
       custom_domains: false
       sla: false
+  # free mirrors anonymous exactly. anonymous is pre-claim (no team_id);
+  # free is claimed-but-unpaid (team_id set, no Razorpay subscription).
+  # Limits + features must stay byte-for-byte identical to anonymous so an
+  # anonymous->free flip at claim time can't widen or narrow quotas. The
+  # 24h reaper still applies — pay-from-day-one policy holds for both.
+  free:
+    display_name: "Free"
+    price_monthly_cents: 0
+    trial_days: 0
+    limits:
+      provisions_per_day: 5
+      postgres_storage_mb: 10
+      postgres_connections: 2
+      redis_memory_mb: 5
+      redis_commands_per_day: 1000
+      mongodb_storage_mb: 5
+      mongodb_connections: 2
+      mongodb_ops_per_minute: 100
+      queue_storage_mb: 1024
+      storage_storage_mb: 10
+      webhook_requests_stored: 100
+      team_members: 1
+      vault_max_entries: 0
+      vault_envs_allowed: []
+      deployments_apps: 0
+    features:
+      alerts: false
+      custom_domains: false
+      sla: false
   hobby:
     display_name: "Hobby"
     price_monthly_cents: 900
