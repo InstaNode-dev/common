@@ -102,9 +102,78 @@ func TestLoad_InvalidYAML_ReturnsError(t *testing.T) {
 func TestAll_ReturnsAllPlans(t *testing.T) {
 	r := plans.Default()
 	all := r.All()
-	assert.Len(t, all, 6, "default registry must have 6 plans (anonymous, free, hobby, pro, team, growth)")
-	for _, name := range []string{"anonymous", "free", "hobby", "pro", "team", "growth"} {
+	// 6 base tiers + 3 yearly variants (hobby_yearly, pro_yearly, team_yearly) = 9.
+	assert.Len(t, all, 9, "default registry must have 9 plans (6 base + 3 yearly variants)")
+	for _, name := range []string{
+		"anonymous", "free", "hobby", "pro", "team", "growth",
+		"hobby_yearly", "pro_yearly", "team_yearly",
+	} {
 		assert.Contains(t, all, name)
+	}
+}
+
+// TestYearlyVariants_MirrorMonthlyLimits guards the invariant that each
+// {tier}_yearly plan has the same limits + features as its monthly
+// counterpart — only `price_monthly_cents` and `billing_period` may
+// differ. Drifting these is silently wrong: a yearly Pro subscriber
+// would get different headroom than a monthly Pro subscriber.
+func TestYearlyVariants_MirrorMonthlyLimits(t *testing.T) {
+	r := plans.Default()
+	for _, base := range []string{"hobby", "pro", "team"} {
+		yearly := r.Get(base + "_yearly")
+		monthly := r.Get(base)
+		assert.Equal(t, monthly.Limits, yearly.Limits,
+			"%s_yearly limits must mirror %s exactly", base, base)
+		assert.Equal(t, monthly.Features, yearly.Features,
+			"%s_yearly features must mirror %s exactly", base, base)
+		assert.Equal(t, "yearly", yearly.BillingPeriod,
+			"%s_yearly must declare billing_period: yearly", base)
+	}
+}
+
+// TestBillingPeriod_MonthlyDefault verifies that base tiers report
+// "monthly" (the YAML omits billing_period for them) and yearly tiers
+// report "yearly".
+func TestBillingPeriod_MonthlyDefault(t *testing.T) {
+	r := plans.Default()
+	for _, t1 := range []string{"hobby", "pro", "team", "growth", "anonymous", "free"} {
+		assert.Equal(t, "monthly", r.BillingPeriod(t1),
+			"tier %q must default to monthly when billing_period is unset", t1)
+	}
+	for _, t1 := range []string{"hobby_yearly", "pro_yearly", "team_yearly"} {
+		assert.Equal(t, "yearly", r.BillingPeriod(t1),
+			"tier %q must report yearly", t1)
+	}
+}
+
+// TestCanonicalTier strips _yearly and leaves bare tiers alone.
+func TestCanonicalTier(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"hobby_yearly", "hobby"},
+		{"pro_yearly", "pro"},
+		{"team_yearly", "team"},
+		{"hobby", "hobby"},
+		{"pro", "pro"},
+		{"team", "team"},
+		{"anonymous", "anonymous"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, plans.CanonicalTier(c.in),
+			"CanonicalTier(%q)", c.in)
+	}
+}
+
+// TestYearlyPrices_DiscountedVsMonthlyTimesTwelve is a regression guard:
+// each yearly price must be strictly less than (monthly_price * 12) so the
+// "Save $X" badge is honest.
+func TestYearlyPrices_DiscountedVsMonthlyTimesTwelve(t *testing.T) {
+	r := plans.Default()
+	for _, base := range []string{"hobby", "pro", "team"} {
+		monthly := r.Get(base).PriceMonthly
+		yearly := r.Get(base + "_yearly").PriceMonthly
+		assert.Less(t, yearly, monthly*12,
+			"%s_yearly (%d) must be cheaper than %s x 12 (%d)", base, yearly, base, monthly*12)
 	}
 }
 

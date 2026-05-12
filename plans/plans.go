@@ -86,8 +86,14 @@ type Plan struct {
 	Name string `yaml:"-"`
 	// DisplayName is the human-readable label shown to users.
 	DisplayName string `yaml:"display_name"`
-	// PriceMonthly is the recurring price in USD cents (0 = free).
+	// PriceMonthly is the recurring price in USD cents (0 = free). For
+	// yearly variants this stores the *annual* price in cents — the
+	// effective per-month figure is derived in the UI.
 	PriceMonthly int `yaml:"price_monthly_cents"`
+	// BillingPeriod is "monthly" (default) or "yearly". The {tier}_yearly
+	// plans set this to "yearly" so callers can distinguish them from the
+	// monthly counterpart at billing-cycle time. Empty == "monthly".
+	BillingPeriod string `yaml:"billing_period"`
 	// TrialDays is the length of the free trial in days (0 = no trial).
 	TrialDays int `yaml:"trial_days"`
 	// Limits holds all quantitative constraints for this tier.
@@ -305,6 +311,33 @@ func (r *Registry) IsDedicatedTier(tier string) bool {
 	return r.Get(tier).Features.Dedicated
 }
 
+// BillingPeriod returns the billing cycle for the tier — "yearly" for
+// the *_yearly variants, "monthly" for everything else. The webhook + DB
+// store only the canonical tier (CanonicalTier strips the suffix), so this
+// helper exists so callers that care about the cycle (UI, audit logs) can
+// recover it from the plan name.
+func (r *Registry) BillingPeriod(tier string) string {
+	p := r.Get(tier)
+	if p == nil {
+		return "monthly"
+	}
+	if p.BillingPeriod == "yearly" {
+		return "yearly"
+	}
+	return "monthly"
+}
+
+// CanonicalTier strips the "_yearly" suffix and returns the base tier name
+// (e.g. "pro_yearly" -> "pro"). Used by the webhook + dashboard mapping so
+// the team's plan_tier column stores the canonical name and limits resolve
+// the same way regardless of billing cycle.
+func CanonicalTier(tier string) string {
+	if strings.HasSuffix(tier, "_yearly") {
+		return strings.TrimSuffix(tier, "_yearly")
+	}
+	return tier
+}
+
 // CustomDomainsAllowed reports whether the given tier may bind custom
 // hostnames to its stacks. Mirrors the `features.custom_domains` flag in
 // plans.yaml — currently true only for "pro", "team", and "growth".
@@ -438,6 +471,36 @@ plans:
       alerts: true
       custom_domains: false
       sla: false
+  # hobby_yearly mirrors hobby exactly — same limits + features. Only the
+  # billing period and price differ ($90/yr ≈ $7.50/mo, ~17% off vs $9 x 12).
+  # The webhook upgrades teams to the "hobby" tier regardless of which
+  # cycle the user paid on; this variant exists only so the checkout
+  # handler can pick the right Razorpay plan_id at subscribe time.
+  hobby_yearly:
+    display_name: "Hobby (yearly)"
+    price_monthly_cents: 9000
+    billing_period: "yearly"
+    trial_days: 14
+    limits:
+      provisions_per_day: -1
+      postgres_storage_mb: 1024
+      postgres_connections: 8
+      redis_memory_mb: 50
+      redis_commands_per_day: 10000
+      mongodb_storage_mb: 100
+      mongodb_connections: 5
+      mongodb_ops_per_minute: 1000
+      queue_storage_mb: 5120
+      storage_storage_mb: 512
+      webhook_requests_stored: 1000
+      team_members: 1
+      vault_max_entries: 20
+      vault_envs_allowed: ["production"]
+      deployments_apps: 1
+    features:
+      alerts: true
+      custom_domains: false
+      sla: false
   pro:
     display_name: "Pro"
     price_monthly_cents: 4900
@@ -462,9 +525,61 @@ plans:
       alerts: true
       custom_domains: true
       sla: false
+  # pro_yearly mirrors pro exactly. $490/yr ≈ $40.83/mo (~17% off $49 x 12).
+  pro_yearly:
+    display_name: "Pro (yearly)"
+    price_monthly_cents: 49000
+    billing_period: "yearly"
+    trial_days: 0
+    limits:
+      provisions_per_day: -1
+      postgres_storage_mb: 5120
+      postgres_connections: 20
+      redis_memory_mb: 256
+      redis_commands_per_day: 500000
+      mongodb_storage_mb: 2048
+      mongodb_connections: 20
+      mongodb_ops_per_minute: 10000
+      queue_storage_mb: 10240
+      storage_storage_mb: 10240
+      webhook_requests_stored: 10000
+      team_members: 5
+      vault_max_entries: 200
+      vault_envs_allowed: []
+      deployments_apps: 10
+    features:
+      alerts: true
+      custom_domains: true
+      sla: false
   team:
     display_name: "Team"
     price_monthly_cents: 19900
+    trial_days: 0
+    limits:
+      provisions_per_day: -1
+      postgres_storage_mb: -1
+      postgres_connections: -1
+      redis_memory_mb: -1
+      redis_commands_per_day: -1
+      mongodb_storage_mb: -1
+      mongodb_connections: -1
+      mongodb_ops_per_minute: -1
+      queue_storage_mb: -1
+      storage_storage_mb: -1
+      webhook_requests_stored: -1
+      team_members: -1
+      vault_max_entries: -1
+      vault_envs_allowed: []
+      deployments_apps: -1
+    features:
+      alerts: true
+      custom_domains: true
+      sla: true
+  # team_yearly mirrors team exactly. $1990/yr ≈ $165.83/mo (~17% off $199 x 12).
+  team_yearly:
+    display_name: "Team (yearly)"
+    price_monthly_cents: 199000
+    billing_period: "yearly"
     trial_days: 0
     limits:
       provisions_per_day: -1
