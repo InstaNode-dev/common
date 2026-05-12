@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"instant.dev/common/buildinfo"
 )
 
 // newTestHandler builds a logctx Handler over a fresh JSON handler writing to
@@ -139,6 +141,26 @@ func TestHandler_EnabledPassthrough(t *testing.T) {
 	h := NewHandler("api", base)
 	if h.Enabled(context.Background(), slog.LevelError) {
 		t.Error("wrapper widened Enabled — base said false, wrapper said true")
+	}
+}
+
+// Test 6: commit_id is sourced from instant.dev/common/buildinfo.GitSHA.
+// Confirms the logctx <-> buildinfo wiring: when the buildinfo var is
+// patched (in production this happens via `-ldflags -X` at link time),
+// every emitted log line carries that same SHA — keeping slog output in
+// lock-step with /healthz and /api/v1/buildinfo.
+func TestHandler_CommitIDFromBuildinfo(t *testing.T) {
+	prev := buildinfo.GitSHA
+	t.Cleanup(func() { buildinfo.GitSHA = prev })
+	buildinfo.GitSHA = "test-sha-abc"
+
+	buf, h := newTestHandler(t, "api")
+	if err := h.Handle(context.Background(), newRecord("hello")); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	rec := decode(t, buf)
+	if rec[FieldCommitID] != "test-sha-abc" {
+		t.Errorf("commit_id = %v, want test-sha-abc", rec[FieldCommitID])
 	}
 }
 
