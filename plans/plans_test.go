@@ -177,22 +177,41 @@ func TestYearlyPrices_DiscountedVsMonthlyTimesTwelve(t *testing.T) {
 	}
 }
 
-// TestYearlyDiscountIsExactly10Percent locks the yearly-discount contract:
-// (yearly / 12) / monthly must equal 0.9 within a small tolerance for each
-// of hobby/pro/team. Future price changes that accidentally drift the
-// discount (e.g. forgetting to re-derive the yearly cents from the new
-// monthly) will fail this test.
-func TestYearlyDiscountIsExactly10Percent(t *testing.T) {
+// TestYearlyIsTwoMonthsFree locks the yearly-pricing contract:
+// (yearly / 12) / monthly must equal 10/12 ≈ 0.8333 within a small tolerance
+// for each of hobby/pro/team. This is the mathematical expression of "2
+// months free" — pay 10 months, get 12. The framing beats percentage-off by
+// ~3.4x in conversion per PRICING-BEST-PRACTICES-2026-05-13.md (Athenic).
+// Future price changes that accidentally drift the discount (e.g. forgetting
+// to re-derive the yearly cents from the new monthly) will fail this test.
+func TestYearlyIsTwoMonthsFree(t *testing.T) {
 	r := plans.Default()
 	const tolerance = 0.01
+	const twoMonthsFreeRatio = 10.0 / 12.0 // ≈ 0.8333
 	for _, base := range []string{"hobby", "pro", "team"} {
 		monthly := float64(r.Get(base).PriceMonthly)
 		yearly := float64(r.Get(base + "_yearly").PriceMonthly)
 		require.Greater(t, monthly, 0.0, "%s monthly price must be > 0", base)
 		ratio := (yearly / 12.0) / monthly
-		assert.InDelta(t, 0.9, ratio, tolerance,
-			"%s_yearly effective monthly / %s monthly must be 0.9 (10%% off); got %.4f (yearly=%d, monthly=%d)",
+		assert.InDelta(t, twoMonthsFreeRatio, ratio, tolerance,
+			"%s_yearly effective monthly / %s monthly must be 10/12 ≈ 0.8333 (2 months free); got %.4f (yearly=%d, monthly=%d)",
 			base, base, ratio, int(yearly), int(monthly))
+	}
+}
+
+// TestYearlyIsExactlyMonthlyTimesTen is the strict integer-cents lock for
+// the "2 months free" pricing model: yearly_price_cents == monthly_price_cents * 10
+// exactly. This makes the "2 months free" claim provable to the cent and
+// keeps the Razorpay plan_id <-> dashboard display values in lockstep.
+func TestYearlyIsExactlyMonthlyTimesTen(t *testing.T) {
+	r := plans.Default()
+	for _, base := range []string{"hobby", "pro", "team"} {
+		monthly := r.Get(base).PriceMonthly
+		yearly := r.Get(base + "_yearly").PriceMonthly
+		require.Greater(t, monthly, 0, "%s monthly price must be > 0", base)
+		assert.Equal(t, monthly*10, yearly,
+			"%s_yearly (%d cents) must equal %s monthly (%d cents) * 10 = %d cents",
+			base, yearly, base, monthly, monthly*10)
 	}
 }
 
