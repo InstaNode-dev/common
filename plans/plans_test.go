@@ -177,6 +177,25 @@ func TestYearlyPrices_DiscountedVsMonthlyTimesTwelve(t *testing.T) {
 	}
 }
 
+// TestYearlyDiscountIsExactly10Percent locks the yearly-discount contract:
+// (yearly / 12) / monthly must equal 0.9 within a small tolerance for each
+// of hobby/pro/team. Future price changes that accidentally drift the
+// discount (e.g. forgetting to re-derive the yearly cents from the new
+// monthly) will fail this test.
+func TestYearlyDiscountIsExactly10Percent(t *testing.T) {
+	r := plans.Default()
+	const tolerance = 0.01
+	for _, base := range []string{"hobby", "pro", "team"} {
+		monthly := float64(r.Get(base).PriceMonthly)
+		yearly := float64(r.Get(base + "_yearly").PriceMonthly)
+		require.Greater(t, monthly, 0.0, "%s monthly price must be > 0", base)
+		ratio := (yearly / 12.0) / monthly
+		assert.InDelta(t, 0.9, ratio, tolerance,
+			"%s_yearly effective monthly / %s monthly must be 0.9 (10%% off); got %.4f (yearly=%d, monthly=%d)",
+			base, base, ratio, int(yearly), int(monthly))
+	}
+}
+
 func TestValidatePromotion_ValidCode_ReturnsPromotion(t *testing.T) {
 	yaml := `
 plans:
