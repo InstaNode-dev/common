@@ -472,13 +472,15 @@ plans:
       custom_domains: false
       sla: false
   # hobby_yearly mirrors hobby exactly — same limits + features. Only the
-  # billing period and price differ ($97.20/yr ≈ $8.10/mo, 10% off vs $9 x 12).
+  # billing period and price differ ($90/yr = $9 x 10 — "2 months free" vs
+  # $9 x 12). The "2 months free" framing (Athenic-style) beats percentage-off
+  # by ~3.4x in conversion per PRICING-BEST-PRACTICES-2026-05-13.md.
   # The webhook upgrades teams to the "hobby" tier regardless of which
   # cycle the user paid on; this variant exists only so the checkout
   # handler can pick the right Razorpay plan_id at subscribe time.
   hobby_yearly:
     display_name: "Hobby (yearly)"
-    price_monthly_cents: 9720
+    price_monthly_cents: 9000
     billing_period: "yearly"
     trial_days: 14
     limits:
@@ -525,10 +527,10 @@ plans:
       alerts: true
       custom_domains: true
       sla: false
-  # pro_yearly mirrors pro exactly. $529.20/yr ≈ $44.10/mo (10% off $49 x 12).
+  # pro_yearly mirrors pro exactly. $490/yr = $49 x 10 ("2 months free" vs $49 x 12).
   pro_yearly:
     display_name: "Pro (yearly)"
-    price_monthly_cents: 52920
+    price_monthly_cents: 49000
     billing_period: "yearly"
     trial_days: 0
     limits:
@@ -575,10 +577,10 @@ plans:
       alerts: true
       custom_domains: true
       sla: true
-  # team_yearly mirrors team exactly. $2149.20/yr ≈ $179.10/mo (10% off $199 x 12).
+  # team_yearly mirrors team exactly. $1990/yr = $199 x 10 ("2 months free" vs $199 x 12).
   team_yearly:
     display_name: "Team (yearly)"
-    price_monthly_cents: 214920
+    price_monthly_cents: 199000
     billing_period: "yearly"
     trial_days: 0
     limits:
