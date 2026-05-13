@@ -177,18 +177,19 @@ func TestYearlyPrices_DiscountedVsMonthlyTimesTwelve(t *testing.T) {
 	}
 }
 
-// TestYearlyIsTwoMonthsFree locks the yearly-pricing contract:
-// (yearly / 12) / monthly must equal 10/12 ≈ 0.8333 within a small tolerance
-// for each of hobby/pro/team. This is the mathematical expression of "2
-// months free" — pay 10 months, get 12. The framing beats percentage-off by
-// ~3.4x in conversion per PRICING-BEST-PRACTICES-2026-05-13.md (Athenic).
-// Future price changes that accidentally drift the discount (e.g. forgetting
-// to re-derive the yearly cents from the new monthly) will fail this test.
-func TestYearlyIsTwoMonthsFree(t *testing.T) {
+// TestProAnnualIsTwoMonthsFree locks the Pro/Team yearly-pricing contract:
+// (yearly / 12) / monthly must equal 10/12 ≈ 0.8333 within a small tolerance.
+// This is the mathematical expression of "2 months free" — pay 10 months,
+// get 12. The framing beats percentage-off by ~3.4x in conversion per
+// PRICING-BEST-PRACTICES-2026-05-13.md (Athenic). Hobby is *intentionally*
+// excluded: it gets a smaller "save 1 month" discount (see
+// TestHobbyAnnualIsOneMonthFree) so the savings differential nudges
+// hobbyists to tier-skip into Pro Annual rather than just upgrade frequency.
+func TestProAnnualIsTwoMonthsFree(t *testing.T) {
 	r := plans.Default()
 	const tolerance = 0.01
 	const twoMonthsFreeRatio = 10.0 / 12.0 // ≈ 0.8333
-	for _, base := range []string{"hobby", "pro", "team"} {
+	for _, base := range []string{"pro", "team"} {
 		monthly := float64(r.Get(base).PriceMonthly)
 		yearly := float64(r.Get(base + "_yearly").PriceMonthly)
 		require.Greater(t, monthly, 0.0, "%s monthly price must be > 0", base)
@@ -199,13 +200,33 @@ func TestYearlyIsTwoMonthsFree(t *testing.T) {
 	}
 }
 
-// TestYearlyIsExactlyMonthlyTimesTen is the strict integer-cents lock for
-// the "2 months free" pricing model: yearly_price_cents == monthly_price_cents * 10
-// exactly. This makes the "2 months free" claim provable to the cent and
-// keeps the Razorpay plan_id <-> dashboard display values in lockstep.
-func TestYearlyIsExactlyMonthlyTimesTen(t *testing.T) {
+// TestHobbyAnnualIsOneMonthFree locks the Hobby-specific "save 1 month"
+// contract: (yearly / 12) / monthly must equal 11/12 ≈ 0.9167. Hobby
+// Annual is deliberately a weaker discount than Pro/Team Annual so the
+// savings differential nudges hobbyists to tier-skip into Pro Annual
+// (which saves "2 months free / $98") rather than just upgrade frequency.
+func TestHobbyAnnualIsOneMonthFree(t *testing.T) {
 	r := plans.Default()
-	for _, base := range []string{"hobby", "pro", "team"} {
+	const tolerance = 0.01
+	const oneMonthFreeRatio = 11.0 / 12.0 // ≈ 0.9167
+	monthly := float64(r.Get("hobby").PriceMonthly)
+	yearly := float64(r.Get("hobby_yearly").PriceMonthly)
+	require.Greater(t, monthly, 0.0, "hobby monthly price must be > 0")
+	ratio := (yearly / 12.0) / monthly
+	assert.InDelta(t, oneMonthFreeRatio, ratio, tolerance,
+		"hobby_yearly effective monthly / hobby monthly must be 11/12 ≈ 0.9167 (save 1 month); got %.4f (yearly=%d, monthly=%d)",
+		ratio, int(yearly), int(monthly))
+}
+
+// TestProTeamYearlyIsMonthlyTimesTen is the strict integer-cents lock for
+// the Pro/Team "2 months free" pricing model: yearly_price_cents ==
+// monthly_price_cents * 10 exactly. This makes the "2 months free" claim
+// provable to the cent and keeps Razorpay plan_id <-> dashboard display
+// values in lockstep. Hobby has its own x11 lock (see
+// TestHobbyYearlyIsMonthlyTimesEleven).
+func TestProTeamYearlyIsMonthlyTimesTen(t *testing.T) {
+	r := plans.Default()
+	for _, base := range []string{"pro", "team"} {
 		monthly := r.Get(base).PriceMonthly
 		yearly := r.Get(base + "_yearly").PriceMonthly
 		require.Greater(t, monthly, 0, "%s monthly price must be > 0", base)
@@ -213,6 +234,45 @@ func TestYearlyIsExactlyMonthlyTimesTen(t *testing.T) {
 			"%s_yearly (%d cents) must equal %s monthly (%d cents) * 10 = %d cents",
 			base, yearly, base, monthly, monthly*10)
 	}
+}
+
+// TestHobbyYearlyIsMonthlyTimesEleven is the strict integer-cents lock for
+// the Hobby "save 1 month" pricing model: hobby_yearly == hobby monthly * 11
+// exactly. Differentiated from Pro/Team (which use x10) so Hobby Annual
+// looks deliberately weaker, nudging tier-skip to Pro Annual.
+func TestHobbyYearlyIsMonthlyTimesEleven(t *testing.T) {
+	r := plans.Default()
+	monthly := r.Get("hobby").PriceMonthly
+	yearly := r.Get("hobby_yearly").PriceMonthly
+	require.Greater(t, monthly, 0, "hobby monthly price must be > 0")
+	assert.Equal(t, monthly*11, yearly,
+		"hobby_yearly (%d cents) must equal hobby monthly (%d cents) * 11 = %d cents",
+		yearly, monthly, monthly*11)
+}
+
+// TestTierDiscountDifferentiation locks the strategic intent: Pro Annual
+// must be a *strictly better* discount than Hobby Annual so the savings
+// differential nudges hobbyists to tier-skip rather than just upgrade
+// frequency. Expressed as: pro_yearly_ratio < hobby_yearly_ratio where
+// ratio = (yearly / 12) / monthly. Lower ratio = better discount. If
+// someone "fixes" Hobby to also be 10/12, this test fails — the
+// differentiation is the product directive, not an accident.
+func TestTierDiscountDifferentiation(t *testing.T) {
+	r := plans.Default()
+	ratio := func(base string) float64 {
+		monthly := float64(r.Get(base).PriceMonthly)
+		yearly := float64(r.Get(base + "_yearly").PriceMonthly)
+		return (yearly / 12.0) / monthly
+	}
+	hobbyRatio := ratio("hobby")
+	proRatio := ratio("pro")
+	teamRatio := ratio("team")
+	assert.Less(t, proRatio, hobbyRatio,
+		"pro_yearly ratio (%.4f) must be strictly < hobby_yearly ratio (%.4f) so Pro Annual is the obviously-best value",
+		proRatio, hobbyRatio)
+	assert.Less(t, teamRatio, hobbyRatio,
+		"team_yearly ratio (%.4f) must be strictly < hobby_yearly ratio (%.4f) so Team Annual is the obviously-best value",
+		teamRatio, hobbyRatio)
 }
 
 func TestValidatePromotion_ValidCode_ReturnsPromotion(t *testing.T) {
