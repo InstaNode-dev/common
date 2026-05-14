@@ -472,6 +472,56 @@ func TestHobbyPlus_TierMatrix(t *testing.T) {
 	assert.False(t, p.Features.Dedicated)
 }
 
+// TestCustomDomainsMaxLimit — FIX-G (2026-05-14) locks the per-tier
+// custom-domain cap so the limit can't silently drift. The cap is paired
+// with the boolean Features.CustomDomains gate: tiers where the boolean
+// is false MUST also have CustomDomainsMax == 0 (the handler trips the
+// boolean first, so a non-zero number on a false-feature tier would be
+// dead code at best and a confusing API contract at worst).
+func TestCustomDomainsMaxLimit(t *testing.T) {
+	r := plans.Default()
+	cases := []struct {
+		tier   string
+		want   int
+		reason string
+	}{
+		{"anonymous", 0, "anonymous has no custom-domain feature"},
+		{"free", 0, "free mirrors anonymous"},
+		{"hobby", 0, "hobby is below the custom-domain unlock"},
+		{"hobby_yearly", 0, "hobby_yearly mirrors hobby"},
+		{"hobby_plus", 1, "hobby_plus is the first tier with custom domains — single hostname"},
+		{"hobby_plus_yearly", 1, "hobby_plus_yearly mirrors hobby_plus"},
+		{"growth", 3, "growth allows 3 hostnames — sits between hobby_plus and pro"},
+		{"pro", 5, "pro allows 5 hostnames"},
+		{"pro_yearly", 5, "pro_yearly mirrors pro"},
+		{"team", 50, "team allows 50 hostnames (effectively unlimited for dashboards)"},
+		{"team_yearly", 50, "team_yearly mirrors team"},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, r.CustomDomainsMaxLimit(c.tier),
+			"CustomDomainsMaxLimit(%q) — %s", c.tier, c.reason)
+	}
+}
+
+// TestCustomDomainsMax_PairedWithBooleanFlag guards the invariant that
+// any tier with custom_domains_max > 0 must also have features.custom_domains:true,
+// and any tier with custom_domains_max == 0 must have features.custom_domains:false.
+// Drift between the two is a code smell — the handler trips the boolean
+// first, so an inconsistent pair means either a dead cap or an unreachable
+// allowance.
+func TestCustomDomainsMax_PairedWithBooleanFlag(t *testing.T) {
+	r := plans.Default()
+	for name, p := range r.All() {
+		switch {
+		case p.Features.CustomDomains && p.Limits.CustomDomainsMax == 0:
+			t.Errorf("tier %q has features.custom_domains=true but custom_domains_max=0 — feature is unreachable", name)
+		case !p.Features.CustomDomains && p.Limits.CustomDomainsMax > 0:
+			t.Errorf("tier %q has features.custom_domains=false but custom_domains_max=%d — cap is unreachable (boolean gate trips first)",
+				name, p.Limits.CustomDomainsMax)
+		}
+	}
+}
+
 // writeTempYAML writes content to a temp file and returns its path.
 func writeTempYAML(t *testing.T, content string) string {
 	t.Helper()
