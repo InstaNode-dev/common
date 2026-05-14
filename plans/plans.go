@@ -89,6 +89,27 @@ type Limits struct {
 	// VectorConnections is the maximum concurrent connections per pgvector
 	// database. Mirrors PostgresConnections.
 	VectorConnections int `yaml:"vector_connections"`
+
+	// CustomDomainsMax is the maximum number of custom domains a team may
+	// bind across all their stacks. -1 means unlimited; 0 means the feature
+	// is not available on this tier (paired with Features.CustomDomains=false).
+	//
+	// Introduced 2026-05-14 (FIX-G) to close the per-count gap: previously
+	// the only gate on /api/v1/stacks/:slug/domains was the boolean
+	// Features.CustomDomains flag, which let any Hobby Plus+ team add an
+	// unbounded number of hostnames. The cap is enforced in
+	// api/internal/handlers/custom_domain.go before the create-row write.
+	// Tier ladder (mirrors plans.yaml):
+	//
+	//   anonymous / free / hobby      = 0  (feature off — boolean gate trips first)
+	//   hobby_plus                    = 1  (first tier with the feature)
+	//   growth                        = 3
+	//   pro                           = 5
+	//   team                          = 50 (effectively unlimited for dashboards)
+	//
+	// Keeping it in Limits (not Features) lets ops change the cap per tier
+	// in plans.yaml without redeploying the handler.
+	CustomDomainsMax int `yaml:"custom_domains_max"`
 }
 
 // Features describes the boolean capabilities unlocked by a plan tier.
@@ -368,6 +389,26 @@ func (r *Registry) CustomDomainsAllowed(tier string) bool {
 	return r.Get(tier).Features.CustomDomains
 }
 
+// CustomDomainsMaxLimit returns the maximum number of custom domains a team
+// on the given tier may bind across their stacks. -1 means unlimited; 0
+// means the feature is not enabled (CustomDomainsAllowed will also be false
+// for that tier — the boolean gate trips first in the handler).
+//
+// Introduced alongside the Limits.CustomDomainsMax field (FIX-G). Callers
+// should pair this with the boolean check:
+//
+//	if !r.CustomDomainsAllowed(tier) { return 402 upgrade_required }
+//	if max := r.CustomDomainsMaxLimit(tier); max >= 0 && count >= max {
+//	    return 402 limit_reached
+//	}
+func (r *Registry) CustomDomainsMaxLimit(tier string) int {
+	p := r.Get(tier)
+	if p == nil {
+		return 0
+	}
+	return p.Limits.CustomDomainsMax
+}
+
 // VaultMaxEntries returns the per-team vault entry cap for the given tier.
 // -1 means unlimited; 0 means vault is not available on this tier.
 func (r *Registry) VaultMaxEntries(tier string) int {
@@ -472,6 +513,7 @@ plans:
       backup_retention_days: 0
       backup_restore_enabled: false
       manual_backups_per_day: 0
+      custom_domains_max: 0
     features:
       alerts: false
       custom_domains: false
@@ -505,6 +547,7 @@ plans:
       backup_retention_days: 0
       backup_restore_enabled: false
       manual_backups_per_day: 0
+      custom_domains_max: 0
     features:
       alerts: false
       custom_domains: false
@@ -533,6 +576,7 @@ plans:
       backup_retention_days: 7
       backup_restore_enabled: false
       manual_backups_per_day: 1
+      custom_domains_max: 0
     features:
       alerts: true
       custom_domains: false
@@ -569,6 +613,7 @@ plans:
       backup_retention_days: 14
       backup_restore_enabled: true
       manual_backups_per_day: 5
+      custom_domains_max: 1
     features:
       alerts: true
       custom_domains: true
@@ -604,6 +649,7 @@ plans:
       backup_retention_days: 14
       backup_restore_enabled: true
       manual_backups_per_day: 5
+      custom_domains_max: 1
     features:
       alerts: true
       custom_domains: true
@@ -643,6 +689,7 @@ plans:
       backup_retention_days: 7
       backup_restore_enabled: false
       manual_backups_per_day: 1
+      custom_domains_max: 0
     features:
       alerts: true
       custom_domains: false
@@ -671,6 +718,7 @@ plans:
       backup_retention_days: 30
       backup_restore_enabled: true
       manual_backups_per_day: 100
+      custom_domains_max: 5
     features:
       alerts: true
       custom_domains: true
@@ -701,6 +749,7 @@ plans:
       backup_retention_days: 30
       backup_restore_enabled: true
       manual_backups_per_day: 100
+      custom_domains_max: 5
     features:
       alerts: true
       custom_domains: true
@@ -729,6 +778,7 @@ plans:
       backup_retention_days: 90
       backup_restore_enabled: true
       manual_backups_per_day: 1000
+      custom_domains_max: 50
     features:
       alerts: true
       custom_domains: true
@@ -759,6 +809,7 @@ plans:
       backup_retention_days: 90
       backup_restore_enabled: true
       manual_backups_per_day: 1000
+      custom_domains_max: 50
     features:
       alerts: true
       custom_domains: true
@@ -787,6 +838,7 @@ plans:
       backup_retention_days: 30
       backup_restore_enabled: true
       manual_backups_per_day: 100
+      custom_domains_max: 3
     features:
       alerts: true
       custom_domains: true
