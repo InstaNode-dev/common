@@ -22,12 +22,13 @@ import "strings"
 // Rank returns a totally-ordered integer rank for the given plan tier name.
 // Higher rank = more capacity. The canonical ordering is:
 //
-//	anonymous = 0
-//	free      = 1
-//	hobby     = 2
-//	growth    = 3
-//	pro       = 4
-//	team      = 5
+//	anonymous  = 0
+//	free       = 1
+//	hobby      = 2
+//	hobby_plus = 3
+//	growth     = 4
+//	pro        = 5
+//	team       = 6
 //
 // Unknown tiers return -1. Callers that compare ranks to classify a
 // transition (upgrade vs downgrade vs renewal) MUST treat -1 as the
@@ -38,6 +39,13 @@ import "strings"
 // don't need to pre-normalise. The "*_yearly" billing variants are NOT
 // special-cased here — pass them through CanonicalTier first if you want
 // "pro_yearly" to rank the same as "pro" (billing.go does exactly this).
+//
+// hobby_plus (W11, 2026-05-13): the $19/mo mid-step between hobby and pro.
+// Sits at rank 3 — strictly above hobby (rank 2) and strictly below growth
+// (rank 4). growth/pro/team each shifted up by one rank to keep the
+// ordering monotonically increasing; the absolute values changed but the
+// relative invariant (every upgrade has rank-strictly-greater than the
+// prior tier) is preserved.
 func Rank(tier string) int {
 	switch strings.ToLower(strings.TrimSpace(tier)) {
 	case "anonymous":
@@ -46,12 +54,14 @@ func Rank(tier string) int {
 		return 1
 	case "hobby":
 		return 2
-	case "growth":
+	case "hobby_plus":
 		return 3
-	case "pro":
+	case "growth":
 		return 4
-	case "team":
+	case "pro":
 		return 5
+	case "team":
+		return 6
 	}
 	return -1
 }
