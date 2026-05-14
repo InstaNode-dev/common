@@ -82,6 +82,21 @@ type Limits struct {
 	// manual backups are not allowed.
 	ManualBackupsPerDay int `yaml:"manual_backups_per_day"`
 
+	// RPOMinutes — Recovery Point Objective. The maximum window of
+	// data loss a tier accepts between the last completed backup and
+	// a restore event. Surfaced on GET /api/v1/capabilities so an
+	// agent can reason about whether a tier meets a workload's
+	// durability requirements before provisioning. 0 means "RPO not
+	// promised" (no scheduled backups on this tier). FIX-H #Q50 (B36).
+	RPOMinutes int `yaml:"rpo_minutes"`
+
+	// RTOMinutes — Recovery Time Objective. The target wall-clock
+	// duration between "operator presses restore" and "data is back
+	// online" for a tier. Includes the worker tick + pg_restore +
+	// post-restore verification. 0 means "RTO not promised" (no
+	// self-serve restore available on this tier). FIX-H #Q50 (B36).
+	RTOMinutes int `yaml:"rto_minutes"`
+
 	// VectorStorageMB is the maximum storage per pgvector-enabled Postgres
 	// database in megabytes. Mirrors PostgresStorageMB because pgvector
 	// runs on the same underlying Postgres backend.
@@ -472,6 +487,29 @@ func (r *Registry) ManualBackupsPerDay(tier string) int {
 		return 0
 	}
 	return p.Limits.ManualBackupsPerDay
+}
+
+// RPOMinutes returns the per-tier Recovery Point Objective in minutes.
+// 0 = "not promised" (the tier doesn't take scheduled backups, so no
+// RPO is guaranteed). Surfaced on GET /api/v1/capabilities. FIX-H #Q50.
+func (r *Registry) RPOMinutes(tier string) int {
+	p := r.Get(tier)
+	if p == nil {
+		return 0
+	}
+	return p.Limits.RPOMinutes
+}
+
+// RTOMinutes returns the per-tier Recovery Time Objective in minutes.
+// 0 = "not promised" (the tier doesn't have self-serve restore, so
+// the time-to-restore is operator-driven and unbounded). Surfaced on
+// GET /api/v1/capabilities. FIX-H #Q50.
+func (r *Registry) RTOMinutes(tier string) int {
+	p := r.Get(tier)
+	if p == nil {
+		return 0
+	}
+	return p.Limits.RTOMinutes
 }
 
 // Default returns a Registry built from hardcoded defaults.
