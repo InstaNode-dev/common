@@ -66,6 +66,29 @@ type Limits struct {
 	// DeploymentsApps is the maximum number of deployable applications per team.
 	// -1 means unlimited; 0 means deployments are not available on this tier.
 	DeploymentsApps int `yaml:"deployments_apps"`
+
+	// BackupRetentionDays is how long the worker keeps Postgres backups for
+	// resources in this tier. 0 means backups are not taken at all (anonymous,
+	// free). Hobby = 7, hobby_plus = 14, Pro/Growth = 30, Team = 90.
+	BackupRetentionDays int `yaml:"backup_retention_days"`
+
+	// BackupRestoreEnabled gates POST /api/v1/resources/:id/restore. When
+	// false the handler returns 402 upgrade_required with a sales nudge.
+	// Hobby = false (sales lever); hobby_plus / Pro / Team = true.
+	BackupRestoreEnabled bool `yaml:"backup_restore_enabled"`
+
+	// ManualBackupsPerDay caps the number of ad-hoc backups a team can
+	// trigger via POST /api/v1/resources/:id/backup per UTC day. 0 means
+	// manual backups are not allowed.
+	ManualBackupsPerDay int `yaml:"manual_backups_per_day"`
+
+	// VectorStorageMB is the maximum storage per pgvector-enabled Postgres
+	// database in megabytes. Mirrors PostgresStorageMB because pgvector
+	// runs on the same underlying Postgres backend.
+	VectorStorageMB int `yaml:"vector_storage_mb"`
+	// VectorConnections is the maximum concurrent connections per pgvector
+	// database. Mirrors PostgresConnections.
+	VectorConnections int `yaml:"vector_connections"`
 }
 
 // Features describes the boolean capabilities unlocked by a plan tier.
@@ -94,8 +117,6 @@ type Plan struct {
 	// plans set this to "yearly" so callers can distinguish them from the
 	// monthly counterpart at billing-cycle time. Empty == "monthly".
 	BillingPeriod string `yaml:"billing_period"`
-	// TrialDays is the length of the free trial in days (0 = no trial).
-	TrialDays int `yaml:"trial_days"`
 	// Limits holds all quantitative constraints for this tier.
 	Limits Limits `yaml:"limits"`
 	// Features holds the boolean feature flags for this tier.
@@ -226,12 +247,16 @@ func (r *Registry) ValidatePromotion(code, targetTier string) (*Promotion, error
 }
 
 // StorageLimitMB returns the storage limit in MB for the given tier and service type.
-// service must be one of "postgres", "redis", "mongodb". Returns -1 for unlimited.
+// service must be one of "postgres", "vector", "redis", "mongodb", "queue",
+// "storage", "webhook". Returns -1 for unlimited. "vector" mirrors "postgres"
+// because pgvector runs on the same underlying Postgres backend.
 func (r *Registry) StorageLimitMB(tier, service string) int {
 	p := r.Get(tier)
 	switch service {
 	case "postgres":
 		return p.Limits.PostgresStorageMB
+	case "vector":
+		return p.Limits.VectorStorageMB
 	case "redis":
 		return p.Limits.RedisMemoryMB
 	case "mongodb":
@@ -247,12 +272,15 @@ func (r *Registry) StorageLimitMB(tier, service string) int {
 }
 
 // ConnectionsLimit returns the max concurrent connections for the given tier and service.
-// Returns -1 for unlimited.
+// Returns -1 for unlimited. "vector" mirrors "postgres" because pgvector runs
+// on the same underlying Postgres backend.
 func (r *Registry) ConnectionsLimit(tier, service string) int {
 	p := r.Get(tier)
 	switch service {
 	case "postgres":
 		return p.Limits.PostgresConnections
+	case "vector":
+		return p.Limits.VectorConnections
 	case "mongodb":
 		return p.Limits.MongoConnections
 	}
@@ -299,11 +327,6 @@ func (r *Registry) PriceMonthly(tier string) int {
 // DisplayName returns the human-readable plan label for the tier.
 func (r *Registry) DisplayName(tier string) string {
 	return r.Get(tier).DisplayName
-}
-
-// TrialDays returns the free-trial length in days for the tier (0 = no trial).
-func (r *Registry) TrialDays(tier string) int {
-	return r.Get(tier).TrialDays
 }
 
 // IsDedicatedTier reports whether the tier provisions dedicated backends.
@@ -379,6 +402,37 @@ func (r *Registry) DeploymentsAppsLimit(tier string) int {
 	return p.Limits.DeploymentsApps
 }
 
+// BackupRetentionDays returns how long the worker keeps Postgres backups for
+// the given tier. 0 means no backups are taken.
+func (r *Registry) BackupRetentionDays(tier string) int {
+	p := r.Get(tier)
+	if p == nil {
+		return 0
+	}
+	return p.Limits.BackupRetentionDays
+}
+
+// BackupRestoreEnabled reports whether the tier may self-serve restore from a
+// backup. Hobby/free/anonymous get false (sales lever — restore is an upgrade
+// hook). hobby_plus / Pro / Team return true.
+func (r *Registry) BackupRestoreEnabled(tier string) bool {
+	p := r.Get(tier)
+	if p == nil {
+		return false
+	}
+	return p.Limits.BackupRestoreEnabled
+}
+
+// ManualBackupsPerDay returns the per-team daily cap on POST /backup calls.
+// 0 means manual backups are not allowed at all. -1 means unlimited.
+func (r *Registry) ManualBackupsPerDay(tier string) int {
+	p := r.Get(tier)
+	if p == nil {
+		return 0
+	}
+	return p.Limits.ManualBackupsPerDay
+}
+
 // Default returns a Registry built from hardcoded defaults.
 // Used in tests and when plans.yaml is not present (development convenience).
 func Default() *Registry {
@@ -397,11 +451,12 @@ plans:
   anonymous:
     display_name: "Anonymous"
     price_monthly_cents: 0
-    trial_days: 0
     limits:
       provisions_per_day: 5
       postgres_storage_mb: 10
       postgres_connections: 2
+      vector_storage_mb: 10
+      vector_connections: 2
       redis_memory_mb: 5
       redis_commands_per_day: 1000
       mongodb_storage_mb: 5
@@ -414,6 +469,9 @@ plans:
       vault_max_entries: 0
       vault_envs_allowed: []
       deployments_apps: 0
+      backup_retention_days: 0
+      backup_restore_enabled: false
+      manual_backups_per_day: 0
     features:
       alerts: false
       custom_domains: false
@@ -426,11 +484,12 @@ plans:
   free:
     display_name: "Free"
     price_monthly_cents: 0
-    trial_days: 0
     limits:
       provisions_per_day: 5
       postgres_storage_mb: 10
       postgres_connections: 2
+      vector_storage_mb: 10
+      vector_connections: 2
       redis_memory_mb: 5
       redis_commands_per_day: 1000
       mongodb_storage_mb: 5
@@ -443,6 +502,9 @@ plans:
       vault_max_entries: 0
       vault_envs_allowed: []
       deployments_apps: 0
+      backup_retention_days: 0
+      backup_restore_enabled: false
+      manual_backups_per_day: 0
     features:
       alerts: false
       custom_domains: false
@@ -450,11 +512,12 @@ plans:
   hobby:
     display_name: "Hobby"
     price_monthly_cents: 900
-    trial_days: 14
     limits:
       provisions_per_day: -1
       postgres_storage_mb: 1024
       postgres_connections: 8
+      vector_storage_mb: 500
+      vector_connections: 5
       redis_memory_mb: 50
       redis_commands_per_day: 10000
       mongodb_storage_mb: 100
@@ -467,9 +530,83 @@ plans:
       vault_max_entries: 20
       vault_envs_allowed: ["production"]
       deployments_apps: 1
+      backup_retention_days: 7
+      backup_restore_enabled: false
+      manual_backups_per_day: 1
     features:
       alerts: true
       custom_domains: false
+      sla: false
+  # hobby_plus — $19/mo mid-step between Hobby ($9) and Pro ($49).
+  # The W11 mid-tier insertion (2026-05-13). Research-backed pricing
+  # decoy: triple-tier $9/$19/$49 lifts conversion ~22% vs $9/$49 by
+  # anchoring against the middle price. Same limits as hobby plus:
+  #   - 2 deployment apps (vs hobby's 1)
+  #   - custom_domains: true (the first paid tier with this feature)
+  #   - 5 GB object storage (vs hobby's 512 MB) — small bump
+  #   - 50 vault entries with multi-env support (vs hobby's 20 prod-only)
+  hobby_plus:
+    display_name: "Hobby Plus"
+    price_monthly_cents: 1900
+    limits:
+      provisions_per_day: -1
+      postgres_storage_mb: 1024
+      postgres_connections: 8
+      vector_storage_mb: 1024
+      vector_connections: 8
+      redis_memory_mb: 50
+      redis_commands_per_day: 10000
+      mongodb_storage_mb: 1024
+      mongodb_connections: 5
+      mongodb_ops_per_minute: 1000
+      queue_storage_mb: 5120
+      storage_storage_mb: 5120
+      webhook_requests_stored: 5000
+      team_members: 1
+      vault_max_entries: 50
+      vault_envs_allowed: ["development", "staging", "production"]
+      deployments_apps: 2
+      backup_retention_days: 14
+      backup_restore_enabled: true
+      manual_backups_per_day: 5
+    features:
+      alerts: true
+      custom_domains: true
+      sla: false
+  # hobby_plus_yearly — annual variant of hobby_plus.
+  # $199/yr ≈ $16.58/mo (~13% off). Discount sits between hobby's
+  # "save 1 month" (~8%) and pro/team's "2 months free" (~17%) — the
+  # mid-tier gets a mid-discount so the savings ladder reads:
+  #   Hobby $9 → save 1 month / Hobby Plus $19 → save ~1.5 months /
+  #   Pro $49 → save 2 months.
+  hobby_plus_yearly:
+    display_name: "Hobby Plus (yearly)"
+    price_monthly_cents: 19900
+    billing_period: "yearly"
+    limits:
+      provisions_per_day: -1
+      postgres_storage_mb: 1024
+      postgres_connections: 8
+      vector_storage_mb: 1024
+      vector_connections: 8
+      redis_memory_mb: 50
+      redis_commands_per_day: 10000
+      mongodb_storage_mb: 1024
+      mongodb_connections: 5
+      mongodb_ops_per_minute: 1000
+      queue_storage_mb: 5120
+      storage_storage_mb: 5120
+      webhook_requests_stored: 5000
+      team_members: 1
+      vault_max_entries: 50
+      vault_envs_allowed: ["development", "staging", "production"]
+      deployments_apps: 2
+      backup_retention_days: 14
+      backup_restore_enabled: true
+      manual_backups_per_day: 5
+    features:
+      alerts: true
+      custom_domains: true
       sla: false
   # hobby_yearly mirrors hobby exactly — same limits + features. Only the
   # billing period and price differ ($99/yr = $9 x 11 — "save 1 month" vs
@@ -485,11 +622,12 @@ plans:
     display_name: "Hobby (yearly)"
     price_monthly_cents: 9900
     billing_period: "yearly"
-    trial_days: 14
     limits:
       provisions_per_day: -1
       postgres_storage_mb: 1024
       postgres_connections: 8
+      vector_storage_mb: 500
+      vector_connections: 5
       redis_memory_mb: 50
       redis_commands_per_day: 10000
       mongodb_storage_mb: 100
@@ -502,6 +640,9 @@ plans:
       vault_max_entries: 20
       vault_envs_allowed: ["production"]
       deployments_apps: 1
+      backup_retention_days: 7
+      backup_restore_enabled: false
+      manual_backups_per_day: 1
     features:
       alerts: true
       custom_domains: false
@@ -509,11 +650,12 @@ plans:
   pro:
     display_name: "Pro"
     price_monthly_cents: 4900
-    trial_days: 0
     limits:
       provisions_per_day: -1
       postgres_storage_mb: 5120
       postgres_connections: 20
+      vector_storage_mb: 5120
+      vector_connections: 20
       redis_memory_mb: 256
       redis_commands_per_day: 500000
       mongodb_storage_mb: 2048
@@ -526,6 +668,9 @@ plans:
       vault_max_entries: 200
       vault_envs_allowed: []
       deployments_apps: 10
+      backup_retention_days: 30
+      backup_restore_enabled: true
+      manual_backups_per_day: 100
     features:
       alerts: true
       custom_domains: true
@@ -535,11 +680,12 @@ plans:
     display_name: "Pro (yearly)"
     price_monthly_cents: 49000
     billing_period: "yearly"
-    trial_days: 0
     limits:
       provisions_per_day: -1
       postgres_storage_mb: 5120
       postgres_connections: 20
+      vector_storage_mb: 5120
+      vector_connections: 20
       redis_memory_mb: 256
       redis_commands_per_day: 500000
       mongodb_storage_mb: 2048
@@ -552,6 +698,9 @@ plans:
       vault_max_entries: 200
       vault_envs_allowed: []
       deployments_apps: 10
+      backup_retention_days: 30
+      backup_restore_enabled: true
+      manual_backups_per_day: 100
     features:
       alerts: true
       custom_domains: true
@@ -559,11 +708,12 @@ plans:
   team:
     display_name: "Team"
     price_monthly_cents: 19900
-    trial_days: 0
     limits:
       provisions_per_day: -1
       postgres_storage_mb: -1
       postgres_connections: -1
+      vector_storage_mb: -1
+      vector_connections: -1
       redis_memory_mb: -1
       redis_commands_per_day: -1
       mongodb_storage_mb: -1
@@ -576,6 +726,9 @@ plans:
       vault_max_entries: -1
       vault_envs_allowed: []
       deployments_apps: -1
+      backup_retention_days: 90
+      backup_restore_enabled: true
+      manual_backups_per_day: 1000
     features:
       alerts: true
       custom_domains: true
@@ -585,11 +738,12 @@ plans:
     display_name: "Team (yearly)"
     price_monthly_cents: 199000
     billing_period: "yearly"
-    trial_days: 0
     limits:
       provisions_per_day: -1
       postgres_storage_mb: -1
       postgres_connections: -1
+      vector_storage_mb: -1
+      vector_connections: -1
       redis_memory_mb: -1
       redis_commands_per_day: -1
       mongodb_storage_mb: -1
@@ -602,6 +756,9 @@ plans:
       vault_max_entries: -1
       vault_envs_allowed: []
       deployments_apps: -1
+      backup_retention_days: 90
+      backup_restore_enabled: true
+      manual_backups_per_day: 1000
     features:
       alerts: true
       custom_domains: true
@@ -609,11 +766,12 @@ plans:
   growth:
     display_name: "Growth"
     price_monthly_cents: 9900
-    trial_days: 0
     limits:
       provisions_per_day: -1
       postgres_storage_mb: 5120
       postgres_connections: 20
+      vector_storage_mb: 5120
+      vector_connections: 20
       redis_memory_mb: 256
       redis_commands_per_day: -1
       mongodb_storage_mb: -1
@@ -626,6 +784,9 @@ plans:
       vault_max_entries: 200
       vault_envs_allowed: []
       deployments_apps: 5
+      backup_retention_days: 30
+      backup_restore_enabled: true
+      manual_backups_per_day: 100
     features:
       alerts: true
       custom_domains: true
