@@ -737,17 +737,18 @@ plans:
     price_monthly_cents: 4900
     limits:
       provisions_per_day: -1
-      postgres_storage_mb: 5120
+      # 2026-05-15 storage bump — keep in sync with api/plans.yaml.
+      postgres_storage_mb: 10240
       postgres_connections: 20
-      vector_storage_mb: 5120
+      vector_storage_mb: 10240
       vector_connections: 20
-      redis_memory_mb: 256
+      redis_memory_mb: 512
       redis_commands_per_day: 500000
-      mongodb_storage_mb: 2048
+      mongodb_storage_mb: 5120
       mongodb_connections: 20
       mongodb_ops_per_minute: 10000
       queue_storage_mb: 10240
-      storage_storage_mb: 10240
+      storage_storage_mb: 51200
       webhook_requests_stored: 10000
       team_members: 5
       vault_max_entries: 200
@@ -768,17 +769,17 @@ plans:
     billing_period: "yearly"
     limits:
       provisions_per_day: -1
-      postgres_storage_mb: 5120
+      postgres_storage_mb: 10240
       postgres_connections: 20
-      vector_storage_mb: 5120
+      vector_storage_mb: 10240
       vector_connections: 20
-      redis_memory_mb: 256
+      redis_memory_mb: 512
       redis_commands_per_day: 500000
-      mongodb_storage_mb: 2048
+      mongodb_storage_mb: 5120
       mongodb_connections: 20
       mongodb_ops_per_minute: 10000
       queue_storage_mb: 10240
-      storage_storage_mb: 10240
+      storage_storage_mb: 51200
       webhook_requests_stored: 10000
       team_members: 5
       vault_max_entries: 200
@@ -857,11 +858,12 @@ plans:
     price_monthly_cents: 9900
     limits:
       provisions_per_day: -1
-      postgres_storage_mb: 5120
+      # 2026-05-15: bumped to stay above Pro after Pro storage bump.
+      postgres_storage_mb: 20480
       postgres_connections: 20
-      vector_storage_mb: 5120
+      vector_storage_mb: 20480
       vector_connections: 20
-      redis_memory_mb: 256
+      redis_memory_mb: 1024
       redis_commands_per_day: -1
       mongodb_storage_mb: -1
       mongodb_connections: -1
