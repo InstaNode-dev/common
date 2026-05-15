@@ -415,10 +415,13 @@ func TestVaultEnvsAllowed_HobbyIsProductionOnly(t *testing.T) {
 	r := plans.Default()
 	assert.Equal(t, []string{"production"}, r.VaultEnvsAllowed("hobby"))
 	assert.Empty(t, r.VaultEnvsAllowed("pro"))
-	// hobby_plus is the first paid tier with multi-env support (dev/staging/prod).
-	assert.Equal(t, []string{"development", "staging", "production"},
+	// 2026-05-15: hobby_plus rolled back to production-only.
+	// Multi-env (dev/staging/prod) is now exclusively Pro+ — pro returns []
+	// which the handler treats as "no restriction / all envs". hobby_plus
+	// matches hobby's posture so the upgrade lever points cleanly at Pro.
+	assert.Equal(t, []string{"production"},
 		r.VaultEnvsAllowed("hobby_plus"),
-		"hobby_plus must allow dev/staging/prod envs (multi-env is the upgrade lever)")
+		"hobby_plus is production-only (W12 rollback); Pro is the cheapest multi-env tier")
 }
 
 func TestDeploymentsAppsLimit_Tiers(t *testing.T) {
@@ -461,8 +464,10 @@ func TestHobbyPlus_TierMatrix(t *testing.T) {
 	assert.Equal(t, 2, p.Limits.DeploymentsApps,
 		"hobby_plus = 2 deployment apps (the headline differentiator vs hobby)")
 	assert.Equal(t, 50, p.Limits.VaultMaxEntries)
-	assert.Equal(t, []string{"development", "staging", "production"}, p.Limits.VaultEnvsAllowed,
-		"hobby_plus is the cheapest tier with multi-env vault support")
+	// 2026-05-15 pricing pass: hobby_plus rolled back to production-only.
+	// Multi-env is now Pro+ only (see multiEnvTierAllowed in stack.go).
+	assert.Equal(t, []string{"production"}, p.Limits.VaultEnvsAllowed,
+		"hobby_plus rolled back to production-only on 2026-05-15; multi-env is Pro+")
 	// Features — custom_domains is the marquee feature that justifies
 	// the $10 step up from hobby ($9 → $19).
 	assert.True(t, p.Features.CustomDomains,

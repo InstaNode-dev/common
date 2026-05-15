@@ -646,7 +646,9 @@ plans:
       webhook_requests_stored: 5000
       team_members: 1
       vault_max_entries: 50
-      vault_envs_allowed: ["development", "staging", "production"]
+      # 2026-05-15: hobby_plus rolled back to production-only vault envs.
+      # Multi-env is Pro+ — see multiEnvTierAllowed in stack.go.
+      vault_envs_allowed: ["production"]
       deployments_apps: 2
       backup_retention_days: 14
       backup_restore_enabled: true
@@ -682,7 +684,9 @@ plans:
       webhook_requests_stored: 5000
       team_members: 1
       vault_max_entries: 50
-      vault_envs_allowed: ["development", "staging", "production"]
+      # 2026-05-15: hobby_plus rolled back to production-only vault envs.
+      # Multi-env is Pro+ — see multiEnvTierAllowed in stack.go.
+      vault_envs_allowed: ["production"]
       deployments_apps: 2
       backup_retention_days: 14
       backup_restore_enabled: true
