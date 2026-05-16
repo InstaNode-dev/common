@@ -45,6 +45,13 @@ type Limits struct {
 	// QueueStorageMB is the maximum JetStream storage per NATS resource in megabytes.
 	QueueStorageMB int `yaml:"queue_storage_mb"`
 
+	// QueueCount is the maximum number of queue (NATS JetStream) resources a team
+	// may have active simultaneously. -1 means unlimited; 0 means the tier cannot
+	// provision queues at all (anonymous/free are already gated by fingerprint dedup).
+	// Added A6 (P1 Wave-3): each queue creates a dedicated k8s namespace+pod, so
+	// unbounded queue creation is an operational risk against the cluster.
+	QueueCount int `yaml:"queue_count"`
+
 	// StorageStorageMB is the maximum object storage per R2 prefix in megabytes.
 	StorageStorageMB int `yaml:"storage_storage_mb"`
 
@@ -458,6 +465,33 @@ func (r *Registry) DeploymentsAppsLimit(tier string) int {
 	return p.Limits.DeploymentsApps
 }
 
+// QueueCountLimit returns the maximum number of simultaneous active queue
+// resources for the given tier. -1 means unlimited; 0 means the tier may not
+// provision queues (the caller is expected to reject with 402 when 0 is returned
+// and the team already has >= 0 queues — i.e. any queue is over-cap).
+//
+// When the plans.yaml entry is missing (older YAML without queue_count field),
+// the struct zero-value 0 is returned. Callers that need to distinguish
+// "truly unlimited" from "not configured" should treat 0 as the default-permit
+// fallback; this method returns -1 for unlimited so callers can use the same
+// `limit >= 0 && existing >= limit` pattern used by DeploymentsAppsLimit.
+//
+// Introduced A6 (P1 Wave-3): each queue provisions a dedicated k8s namespace
+// and NATS pod, making unbounded queue creation an operational risk.
+func (r *Registry) QueueCountLimit(tier string) int {
+	p := r.Get(tier)
+	if p == nil {
+		return -1 // unknown tier — fail open
+	}
+	// A zero value means the YAML field was absent (pre-A6 plans.yaml) — treat as
+	// unlimited to avoid blocking existing customers on old configs. Once plans.yaml
+	// has queue_count for all tiers, this zero-fallback is inert.
+	if p.Limits.QueueCount == 0 {
+		return -1
+	}
+	return p.Limits.QueueCount
+}
+
 // BackupRetentionDays returns how long the worker keeps Postgres backups for
 // the given tier. 0 means no backups are taken.
 func (r *Registry) BackupRetentionDays(tier string) int {
@@ -542,6 +576,7 @@ plans:
       mongodb_connections: 2
       mongodb_ops_per_minute: 100
       queue_storage_mb: 1024
+      queue_count: -1
       storage_storage_mb: 10
       webhook_requests_stored: 100
       team_members: 1
@@ -576,6 +611,7 @@ plans:
       mongodb_connections: 2
       mongodb_ops_per_minute: 100
       queue_storage_mb: 1024
+      queue_count: -1
       storage_storage_mb: 10
       webhook_requests_stored: 100
       team_members: 1
@@ -605,6 +641,7 @@ plans:
       mongodb_connections: 5
       mongodb_ops_per_minute: 1000
       queue_storage_mb: 5120
+      queue_count: 3
       storage_storage_mb: 512
       webhook_requests_stored: 1000
       team_members: 1
@@ -642,6 +679,7 @@ plans:
       mongodb_connections: 5
       mongodb_ops_per_minute: 1000
       queue_storage_mb: 5120
+      queue_count: 5
       storage_storage_mb: 5120
       webhook_requests_stored: 5000
       team_members: 1
@@ -680,6 +718,7 @@ plans:
       mongodb_connections: 5
       mongodb_ops_per_minute: 1000
       queue_storage_mb: 5120
+      queue_count: 5
       storage_storage_mb: 5120
       webhook_requests_stored: 5000
       team_members: 1
@@ -722,6 +761,7 @@ plans:
       mongodb_connections: 5
       mongodb_ops_per_minute: 1000
       queue_storage_mb: 5120
+      queue_count: 3
       storage_storage_mb: 512
       webhook_requests_stored: 1000
       team_members: 1
@@ -752,6 +792,7 @@ plans:
       mongodb_connections: 20
       mongodb_ops_per_minute: 10000
       queue_storage_mb: 10240
+      queue_count: 20
       storage_storage_mb: 51200
       webhook_requests_stored: 10000
       team_members: 5
@@ -783,6 +824,7 @@ plans:
       mongodb_connections: 20
       mongodb_ops_per_minute: 10000
       queue_storage_mb: 10240
+      queue_count: 20
       storage_storage_mb: 51200
       webhook_requests_stored: 10000
       team_members: 5
@@ -812,6 +854,7 @@ plans:
       mongodb_connections: -1
       mongodb_ops_per_minute: -1
       queue_storage_mb: -1
+      queue_count: -1
       storage_storage_mb: -1
       webhook_requests_stored: -1
       team_members: -1
@@ -843,6 +886,7 @@ plans:
       mongodb_connections: -1
       mongodb_ops_per_minute: -1
       queue_storage_mb: -1
+      queue_count: -1
       storage_storage_mb: -1
       webhook_requests_stored: -1
       team_members: -1
@@ -873,6 +917,7 @@ plans:
       mongodb_connections: -1
       mongodb_ops_per_minute: -1
       queue_storage_mb: -1
+      queue_count: -1
       storage_storage_mb: -1
       webhook_requests_stored: -1
       team_members: 10
