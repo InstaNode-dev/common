@@ -184,10 +184,9 @@ func TestYearlyPrices_DiscountedVsMonthlyTimesTwelve(t *testing.T) {
 // (yearly / 12) / monthly must equal 10/12 ≈ 0.8333 within a small tolerance.
 // This is the mathematical expression of "2 months free" — pay 10 months,
 // get 12. The framing beats percentage-off by ~3.4x in conversion per
-// PRICING-BEST-PRACTICES-2026-05-13.md (Athenic). Hobby is *intentionally*
-// excluded: it gets a smaller "save 1 month" discount (see
-// TestHobbyAnnualIsOneMonthFree) so the savings differential nudges
-// hobbyists to tier-skip into Pro Annual rather than just upgrade frequency.
+// PRICING-BEST-PRACTICES-2026-05-13.md (Athenic). As of the 2026-05-17
+// contract-drift fix Hobby Annual shares this same 10/12 discount (see
+// TestHobbyAnnualIsTwoMonthsFree).
 func TestProAnnualIsTwoMonthsFree(t *testing.T) {
 	r := plans.Default()
 	const tolerance = 0.01
@@ -203,33 +202,37 @@ func TestProAnnualIsTwoMonthsFree(t *testing.T) {
 	}
 }
 
-// TestHobbyAnnualIsOneMonthFree locks the Hobby-specific "save 1 month"
-// contract: (yearly / 12) / monthly must equal 11/12 ≈ 0.9167. Hobby
-// Annual is deliberately a weaker discount than Pro/Team Annual so the
-// savings differential nudges hobbyists to tier-skip into Pro Annual
-// (which saves "2 months free / $98") rather than just upgrade frequency.
-func TestHobbyAnnualIsOneMonthFree(t *testing.T) {
+// TestHobbyAnnualIsTwoMonthsFree locks the Hobby yearly-pricing contract:
+// (yearly / 12) / monthly must equal 10/12 ≈ 0.8333. Hobby Annual is
+// $90/yr = $7.50/mo ("save 2 months" vs $9 x 12), matching the Pro/Team
+// "2 months free" discount. Source of truth is api/plans.yaml
+// (hobby_yearly price_monthly_cents: 9000); see the instanode-web
+// PricingPage FIX-K note "$90/yr = $7.50/mo".
+func TestHobbyAnnualIsTwoMonthsFree(t *testing.T) {
 	r := plans.Default()
 	const tolerance = 0.01
-	const oneMonthFreeRatio = 11.0 / 12.0 // ≈ 0.9167
+	const twoMonthsFreeRatio = 10.0 / 12.0 // ≈ 0.8333
 	monthly := float64(r.Get("hobby").PriceMonthly)
 	yearly := float64(r.Get("hobby_yearly").PriceMonthly)
 	require.Greater(t, monthly, 0.0, "hobby monthly price must be > 0")
 	ratio := (yearly / 12.0) / monthly
-	assert.InDelta(t, oneMonthFreeRatio, ratio, tolerance,
-		"hobby_yearly effective monthly / hobby monthly must be 11/12 ≈ 0.9167 (save 1 month); got %.4f (yearly=%d, monthly=%d)",
+	assert.InDelta(t, twoMonthsFreeRatio, ratio, tolerance,
+		"hobby_yearly effective monthly / hobby monthly must be 10/12 ≈ 0.8333 (save 2 months); got %.4f (yearly=%d, monthly=%d)",
 		ratio, int(yearly), int(monthly))
 }
 
-// TestProTeamYearlyIsMonthlyTimesTen is the strict integer-cents lock for
-// the Pro/Team "2 months free" pricing model: yearly_price_cents ==
+// TestYearlyIsMonthlyTimesTen is the strict integer-cents lock for the
+// "2 months free" pricing model: yearly_price_cents ==
 // monthly_price_cents * 10 exactly. This makes the "2 months free" claim
 // provable to the cent and keeps Razorpay plan_id <-> dashboard display
-// values in lockstep. Hobby has its own x11 lock (see
-// TestHobbyYearlyIsMonthlyTimesEleven).
-func TestProTeamYearlyIsMonthlyTimesTen(t *testing.T) {
+// values in lockstep. As of the 2026-05-17 contract-drift fix,
+// hobby_yearly is also x10 ($90/yr = $7.50/mo) — it no longer uses the
+// old x11 "save 1 month" model. hobby_plus is deliberately excluded: its
+// annual variant uses a distinct "~1.5 months free" mid-discount
+// ($199/yr vs $19 x 12) — see TestHobbyPlusYearlyDiscount.
+func TestYearlyIsMonthlyTimesTen(t *testing.T) {
 	r := plans.Default()
-	for _, base := range []string{"pro", "team"} {
+	for _, base := range []string{"hobby", "pro", "team"} {
 		monthly := r.Get(base).PriceMonthly
 		yearly := r.Get(base + "_yearly").PriceMonthly
 		require.Greater(t, monthly, 0, "%s monthly price must be > 0", base)
@@ -239,43 +242,57 @@ func TestProTeamYearlyIsMonthlyTimesTen(t *testing.T) {
 	}
 }
 
-// TestHobbyYearlyIsMonthlyTimesEleven is the strict integer-cents lock for
-// the Hobby "save 1 month" pricing model: hobby_yearly == hobby monthly * 11
-// exactly. Differentiated from Pro/Team (which use x10) so Hobby Annual
-// looks deliberately weaker, nudging tier-skip to Pro Annual.
-func TestHobbyYearlyIsMonthlyTimesEleven(t *testing.T) {
+// TestHobbyPlusYearlyDiscount locks the mid-tier's intentionally distinct
+// annual discount: hobby_plus_yearly = $199/yr against $19/mo x 12 = $228,
+// i.e. "~1.5 months free" — between Hobby's "2 months free" and the
+// step-up incentive. Mirrors the plans.yaml comment.
+func TestHobbyPlusYearlyDiscount(t *testing.T) {
 	r := plans.Default()
-	monthly := r.Get("hobby").PriceMonthly
-	yearly := r.Get("hobby_yearly").PriceMonthly
-	require.Greater(t, monthly, 0, "hobby monthly price must be > 0")
-	assert.Equal(t, monthly*11, yearly,
-		"hobby_yearly (%d cents) must equal hobby monthly (%d cents) * 11 = %d cents",
-		yearly, monthly, monthly*11)
+	assert.Equal(t, 1900, r.PriceMonthly("hobby_plus"),
+		"hobby_plus monthly must be 1900 cents")
+	assert.Equal(t, 19900, r.PriceMonthly("hobby_plus_yearly"),
+		"hobby_plus_yearly must be 19900 cents ($199/yr) — distinct ~1.5-month discount")
+	yearly := r.PriceMonthly("hobby_plus_yearly")
+	monthlyTimes12 := r.PriceMonthly("hobby_plus") * 12
+	assert.Less(t, yearly, monthlyTimes12,
+		"hobby_plus_yearly (%d) must be cheaper than $19 x 12 (%d)", yearly, monthlyTimes12)
 }
 
-// TestTierDiscountDifferentiation locks the strategic intent: Pro Annual
-// must be a *strictly better* discount than Hobby Annual so the savings
-// differential nudges hobbyists to tier-skip rather than just upgrade
-// frequency. Expressed as: pro_yearly_ratio < hobby_yearly_ratio where
-// ratio = (yearly / 12) / monthly. Lower ratio = better discount. If
-// someone "fixes" Hobby to also be 10/12, this test fails — the
-// differentiation is the product directive, not an accident.
-func TestTierDiscountDifferentiation(t *testing.T) {
+// TestHobbyYearlyPriceIsPinned is the value-pinning regression guard for
+// the 2026-05-17 contract-drift fix: common/plans.go defaultYAML's
+// hobby_yearly price had drifted to 9900 cents while api/plans.yaml (the
+// source of truth) holds 9000 cents ($90/yr = $7.50/mo, "save 2 months",
+// matching the instanode-web PricingPage FIX-K note). This test fails if
+// defaultYAML's hobby_yearly price drifts off 9000 again.
+func TestHobbyYearlyPriceIsPinned(t *testing.T) {
 	r := plans.Default()
+	assert.Equal(t, 9000, r.PriceMonthly("hobby_yearly"),
+		"hobby_yearly must be 9000 cents ($90/yr) — matches api/plans.yaml source of truth")
+	assert.Equal(t, 9000, r.Get("hobby_yearly").PriceMonthly,
+		"hobby_yearly Plan.PriceMonthly must be 9000 cents")
+}
+
+// TestTierDiscountUniformity locks the strategic intent: the hobby/pro/team
+// yearly variants all offer the same "2 months free" (10/12) discount, so
+// the annual-billing pitch is uniform across the core tier ladder. As of
+// the 2026-05-17 fix Hobby Annual is no longer a deliberately weaker
+// discount — api/plans.yaml puts it at the same 10/12 ratio as Pro/Team.
+// hobby_plus is excluded: it uses a distinct mid-discount (see
+// TestHobbyPlusYearlyDiscount).
+func TestTierDiscountUniformity(t *testing.T) {
+	r := plans.Default()
+	const tolerance = 0.01
+	const twoMonthsFreeRatio = 10.0 / 12.0 // ≈ 0.8333
 	ratio := func(base string) float64 {
 		monthly := float64(r.Get(base).PriceMonthly)
 		yearly := float64(r.Get(base + "_yearly").PriceMonthly)
 		return (yearly / 12.0) / monthly
 	}
-	hobbyRatio := ratio("hobby")
-	proRatio := ratio("pro")
-	teamRatio := ratio("team")
-	assert.Less(t, proRatio, hobbyRatio,
-		"pro_yearly ratio (%.4f) must be strictly < hobby_yearly ratio (%.4f) so Pro Annual is the obviously-best value",
-		proRatio, hobbyRatio)
-	assert.Less(t, teamRatio, hobbyRatio,
-		"team_yearly ratio (%.4f) must be strictly < hobby_yearly ratio (%.4f) so Team Annual is the obviously-best value",
-		teamRatio, hobbyRatio)
+	for _, base := range []string{"hobby", "pro", "team"} {
+		assert.InDelta(t, twoMonthsFreeRatio, ratio(base), tolerance,
+			"%s_yearly discount ratio must be 10/12 ≈ 0.8333 (2 months free); got %.4f",
+			base, ratio(base))
+	}
 }
 
 func TestValidatePromotion_ValidCode_ReturnsPromotion(t *testing.T) {

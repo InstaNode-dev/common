@@ -736,18 +736,17 @@ plans:
       custom_domains: true
       sla: false
   # hobby_yearly mirrors hobby exactly — same limits + features. Only the
-  # billing period and price differ ($99/yr = $9 x 11 — "save 1 month" vs
-  # $9 x 12). Hobby Annual gets a smaller discount than Pro/Team Annual
-  # (which keep "2 months free" = $X x 10) so the savings differential
-  # nudges hobbyists to tier-skip into Pro Annual rather than just
-  # upgrading their billing frequency. Locked by
-  # TestTierDiscountDifferentiation in plans_test.go.
+  # billing period and price differ ($90/yr = $7.50/mo — "save 2 months"
+  # vs $9 x 12). Hobby Annual gets the same ~17% discount as Pro/Team
+  # Annual (all "2 months free" = $X x 10). Locked by
+  # TestHobbyYearlyPriceIsPinned + TestYearlyIsMonthlyTimesTen in
+  # plans_test.go.
   # The webhook upgrades teams to the "hobby" tier regardless of which
   # cycle the user paid on; this variant exists only so the checkout
   # handler can pick the right Razorpay plan_id at subscribe time.
   hobby_yearly:
     display_name: "Hobby (yearly)"
-    price_monthly_cents: 9900
+    price_monthly_cents: 9000
     billing_period: "yearly"
     limits:
       provisions_per_day: -1
