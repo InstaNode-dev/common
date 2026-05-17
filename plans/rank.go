@@ -26,9 +26,12 @@ import "strings"
 //	free       = 1
 //	hobby      = 2
 //	hobby_plus = 3
-//	growth     = 4
-//	pro        = 5
+//	pro        = 4
+//	growth     = 5
 //	team       = 6
+//
+// The ordering is anchored to plans.yaml pricing: hobby $9 < hobby_plus $19
+// < pro $49 < growth $99 < team $199. pro sits strictly BELOW growth.
 //
 // Unknown tiers return -1. Callers that compare ranks to classify a
 // transition (upgrade vs downgrade vs renewal) MUST treat -1 as the
@@ -41,11 +44,15 @@ import "strings"
 // "pro_yearly" to rank the same as "pro" (billing.go does exactly this).
 //
 // hobby_plus (W11, 2026-05-13): the $19/mo mid-step between hobby and pro.
-// Sits at rank 3 — strictly above hobby (rank 2) and strictly below growth
-// (rank 4). growth/pro/team each shifted up by one rank to keep the
-// ordering monotonically increasing; the absolute values changed but the
-// relative invariant (every upgrade has rank-strictly-greater than the
-// prior tier) is preserved.
+// Sits at rank 3 — strictly above hobby (rank 2) and strictly below pro
+// (rank 4).
+//
+// growth/pro fix (P1, BUGHUNT-REPORT-2026-05-17-round2.md): this table
+// previously had growth=4, pro=5 — i.e. growth ranked BELOW pro, contradicting
+// the $99 > $49 pricing and the worker's billingTierRankMap (pro=4, growth=5).
+// The two disagreed, so an automatic plan-transition could be misclassified as
+// an upgrade when it was a downgrade (and vice versa). pro and growth are now
+// in pricing order; team stays at 6.
 func Rank(tier string) int {
 	switch strings.ToLower(strings.TrimSpace(tier)) {
 	case "anonymous":
@@ -56,9 +63,9 @@ func Rank(tier string) int {
 		return 2
 	case "hobby_plus":
 		return 3
-	case "growth":
-		return 4
 	case "pro":
+		return 4
+	case "growth":
 		return 5
 	case "team":
 		return 6
