@@ -544,6 +544,56 @@ func TestCustomDomainsMax_PairedWithBooleanFlag(t *testing.T) {
 	}
 }
 
+// TestRPORTOMinutes_DefaultYAMLMatchesAPIPlansYAML pins the per-tier RPO/RTO
+// values in common/plans.go's defaultYAML. BugBash 2026-05-18 P2-W2-41: the
+// defaultYAML const set NO rpo_minutes/rto_minutes on any tier, so plans.Default()
+// reported RPO=RTO=0 for Pro/Team (real 60/15). The accessors RPOMinutes/RTOMinutes
+// exist and read these fields — without them, GET /api/v1/capabilities (which is
+// served by a Default()-backed registry in any environment lacking plans.yaml)
+// under-reports durability and an agent reasoning about a workload's RPO/RTO
+// requirement gets a false "not promised" signal for Pro/Team.
+//
+// This test iterates every tier in the registry so a new tier added to
+// defaultYAML without rpo/rto fails here rather than silently reporting 0.
+func TestRPORTOMinutes_DefaultYAMLMatchesAPIPlansYAML(t *testing.T) {
+	r := plans.Default()
+
+	// Expected per-tier RPO/RTO, mirroring api/plans.yaml exactly.
+	// 0/0 = "not promised" (no scheduled backups / no self-serve restore).
+	want := map[string]struct{ rpo, rto int }{
+		"anonymous":         {0, 0},
+		"free":              {0, 0},
+		"hobby":             {1440, 30},
+		"hobby_yearly":      {1440, 30},
+		"hobby_plus":        {1440, 30},
+		"hobby_plus_yearly": {1440, 30},
+		"pro":               {60, 15},
+		"pro_yearly":        {60, 15},
+		"team":              {60, 15},
+		"team_yearly":       {60, 15},
+		"growth":            {60, 15},
+	}
+
+	// Every tier in the registry must have a pinned expectation — guards
+	// against a new tier being added with no RPO/RTO coverage.
+	for name := range r.All() {
+		if _, ok := want[name]; !ok {
+			t.Errorf("tier %q has no RPO/RTO expectation — add it to TestRPORTOMinutes_DefaultYAMLMatchesAPIPlansYAML", name)
+		}
+	}
+
+	for tier, exp := range want {
+		assert.Equal(t, exp.rpo, r.RPOMinutes(tier),
+			"RPOMinutes(%q) must match api/plans.yaml", tier)
+		assert.Equal(t, exp.rto, r.RTOMinutes(tier),
+			"RTOMinutes(%q) must match api/plans.yaml", tier)
+	}
+
+	// Spot-check the specific regression: Pro must NOT report 0/0.
+	require.NotZero(t, r.RPOMinutes("pro"), "Pro RPO regressed to 0 — P2-W2-41 reappeared")
+	require.NotZero(t, r.RTOMinutes("pro"), "Pro RTO regressed to 0 — P2-W2-41 reappeared")
+}
+
 // writeTempYAML writes content to a temp file and returns its path.
 func writeTempYAML(t *testing.T, content string) string {
 	t.Helper()
