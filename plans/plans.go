@@ -586,6 +586,8 @@ plans:
       backup_retention_days: 0
       backup_restore_enabled: false
       manual_backups_per_day: 0
+      rpo_minutes: 0
+      rto_minutes: 0
       custom_domains_max: 0
     features:
       alerts: false
@@ -621,6 +623,8 @@ plans:
       backup_retention_days: 0
       backup_restore_enabled: false
       manual_backups_per_day: 0
+      rpo_minutes: 0
+      rto_minutes: 0
       custom_domains_max: 0
     features:
       alerts: false
@@ -651,6 +655,8 @@ plans:
       backup_retention_days: 7
       backup_restore_enabled: false
       manual_backups_per_day: 1
+      rpo_minutes: 1440
+      rto_minutes: 30
       custom_domains_max: 0
     features:
       alerts: true
@@ -691,6 +697,8 @@ plans:
       backup_retention_days: 14
       backup_restore_enabled: true
       manual_backups_per_day: 5
+      rpo_minutes: 1440
+      rto_minutes: 30
       custom_domains_max: 1
     features:
       alerts: true
@@ -730,6 +738,8 @@ plans:
       backup_retention_days: 14
       backup_restore_enabled: true
       manual_backups_per_day: 5
+      rpo_minutes: 1440
+      rto_minutes: 30
       custom_domains_max: 1
     features:
       alerts: true
@@ -770,6 +780,8 @@ plans:
       backup_retention_days: 7
       backup_restore_enabled: false
       manual_backups_per_day: 1
+      rpo_minutes: 1440
+      rto_minutes: 30
       custom_domains_max: 0
     features:
       alerts: true
@@ -801,6 +813,8 @@ plans:
       backup_retention_days: 30
       backup_restore_enabled: true
       manual_backups_per_day: 100
+      rpo_minutes: 60
+      rto_minutes: 15
       custom_domains_max: 5
     features:
       alerts: true
@@ -833,6 +847,8 @@ plans:
       backup_retention_days: 30
       backup_restore_enabled: true
       manual_backups_per_day: 100
+      rpo_minutes: 60
+      rto_minutes: 15
       custom_domains_max: 5
     features:
       alerts: true
@@ -863,6 +879,8 @@ plans:
       backup_retention_days: 90
       backup_restore_enabled: true
       manual_backups_per_day: 1000
+      rpo_minutes: 60
+      rto_minutes: 15
       custom_domains_max: 50
     features:
       alerts: true
@@ -895,6 +913,8 @@ plans:
       backup_retention_days: 90
       backup_restore_enabled: true
       manual_backups_per_day: 1000
+      rpo_minutes: 60
+      rto_minutes: 15
       custom_domains_max: 50
     features:
       alerts: true
@@ -926,6 +946,8 @@ plans:
       backup_retention_days: 30
       backup_restore_enabled: true
       manual_backups_per_day: 100
+      rpo_minutes: 60
+      rto_minutes: 15
       custom_domains_max: 3
     features:
       alerts: true
