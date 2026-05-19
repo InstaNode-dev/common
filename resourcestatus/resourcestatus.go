@@ -30,6 +30,17 @@ import "time"
 type Status string
 
 const (
+	// StatusPending — the resource row has been inserted but the backend
+	// provision RPC + connection-URL persistence have NOT yet completed.
+	// This is the transient state a row carries during the provision window.
+	// Added by MR-P0-2 (BugBash 2026-05-20): CreateResource now inserts
+	// 'pending' and flips to 'active' only after the backend RPC and all
+	// persistence succeed, so the provisioner_reconciler's
+	// `WHERE status='pending'` crash-recovery sweep can actually match a row
+	// stranded by an api crash mid-provision. A pending resource is NOT
+	// usable — the public service paths gate on IsActive.
+	StatusPending Status = "pending"
+
 	// StatusActive — the resource is provisioned and serving traffic.
 	// Connection URLs work. This is the only status for which the public
 	// service paths (webhook receive, log streaming, family-twin roots)
@@ -65,6 +76,7 @@ const (
 // constant added above without being appended here fails that test.
 func AllStatuses() []Status {
 	return []Status{
+		StatusPending,
 		StatusActive,
 		StatusPaused,
 		StatusSuspended,
@@ -76,7 +88,7 @@ func AllStatuses() []Status {
 // Valid reports whether s is one of the canonical Status values.
 func (s Status) Valid() bool {
 	switch s {
-	case StatusActive, StatusPaused, StatusSuspended, StatusExpired, StatusDeleted:
+	case StatusPending, StatusActive, StatusPaused, StatusSuspended, StatusExpired, StatusDeleted:
 		return true
 	default:
 		return false
@@ -98,8 +110,13 @@ func Parse(raw string) (Status, bool) {
 // IsActive reports whether the resource is live and serving. This is the
 // predicate the public service paths gate on (webhook receive/list, log
 // streaming, family-twin root selection): only an active resource has
-// live backing infra.
+// live backing infra. A pending resource is NOT active.
 func (s Status) IsActive() bool { return s == StatusActive }
+
+// IsPending reports whether the resource is mid-provision — the row exists
+// but the backend RPC + connection-URL persistence have not yet completed.
+// The provisioner_reconciler's crash-recovery sweep keys on this state.
+func (s Status) IsPending() bool { return s == StatusPending }
 
 // IsPaused reports whether the resource is owner-paused.
 func (s Status) IsPaused() bool { return s == StatusPaused }
