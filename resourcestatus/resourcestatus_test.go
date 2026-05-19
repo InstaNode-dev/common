@@ -15,6 +15,7 @@ import (
 func TestStatusPredicates_ExhaustiveOverEnum(t *testing.T) {
 	type want struct {
 		valid     bool
+		pending   bool
 		active    bool
 		paused    bool
 		suspended bool
@@ -25,6 +26,12 @@ func TestStatusPredicates_ExhaustiveOverEnum(t *testing.T) {
 	}
 
 	cases := map[resourcestatus.Status]want{
+		// Pending — mid-provision. Valid but NOT active, NOT terminal, and
+		// NOT reapable (the provisioner_reconciler, not the TTL reaper,
+		// handles a stranded pending row).
+		resourcestatus.StatusPending: {
+			valid: true, pending: true,
+		},
 		resourcestatus.StatusActive: {
 			valid: true, active: true, reapable: true,
 		},
@@ -53,6 +60,9 @@ func TestStatusPredicates_ExhaustiveOverEnum(t *testing.T) {
 		}
 		if got := s.IsActive(); got != w.active {
 			t.Errorf("%q.IsActive() = %v, want %v", s, got, w.active)
+		}
+		if got := s.IsPending(); got != w.pending {
+			t.Errorf("%q.IsPending() = %v, want %v", s, got, w.pending)
 		}
 		if got := s.IsPaused(); got != w.paused {
 			t.Errorf("%q.IsPaused() = %v, want %v", s, got, w.paused)
