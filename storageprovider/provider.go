@@ -142,13 +142,25 @@ type Capabilities struct {
 	BucketPerTenant bool
 
 	// ServerAccessLogs = the backend can deliver per-object access logs
-	// (e.g. S3 server-access logs, R2 access logs). Informational; not used
-	// for routing.
+	// (e.g. S3 server-access logs, R2 access logs).
+	//
+	// INFORMATIONAL ONLY — NOT consumed by api routing in
+	// `decideStorageMode`. Surfaced in audit_log + capability dumps so
+	// operators auditing a tenant complaint ("did this bucket have
+	// per-object logs?") can answer from a single field rather than
+	// re-reading every backend's source. Treat reads of this field as
+	// "metadata about the backend"; do NOT branch routing decisions on it.
 	ServerAccessLogs bool
 
-	// MaxKeysPerAccount is the hard cap on the number of access keys a single
-	// platform account can mint. 0 = unbounded. Used by callers to decide
-	// whether to recycle / pool keys.
+	// MaxKeysPerAccount is the hard cap on the number of access keys a
+	// single platform account can mint. 0 = unbounded.
+	//
+	// INFORMATIONAL ONLY — NOT consumed by api routing today. The value
+	// exists so a future credential-pool / key-recycling implementation
+	// (or a Prometheus alert "you're at 90% of DO Spaces' 200-key cap")
+	// has a single source of truth without re-reading every backend's
+	// docs. Today's broker-mode fallback for DO Spaces sidesteps the
+	// per-tenant key path entirely so the cap is not hit in practice.
 	MaxKeysPerAccount int
 }
 
