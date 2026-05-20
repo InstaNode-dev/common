@@ -5,14 +5,44 @@ import (
 	"strings"
 )
 
+// Canonical backend identifiers. These are the strings every layer (api,
+// worker, provisioner, OpenAPI docs, k8s ConfigMaps) should compare against.
+//
+// BackendDOSpaces is the one canonical identifier for the DO Spaces backend.
+// BackendSharedKey is kept as a deprecated alias because earlier `api/config.go`
+// emitted "shared-key" / "shared-master-key" — those strings appear in some
+// k8s manifests + audit logs. NormalizeBackend collapses both aliases to
+// BackendDOSpaces, so they reach the same implementation; new code should
+// use BackendDOSpaces and tooling should migrate operator configs over time.
+const (
+	BackendDOSpaces = "do-spaces"
+	BackendR2       = "r2"
+	BackendS3       = "s3"
+	BackendMinIO    = "minio"
+
+	// Deprecated: use [BackendDOSpaces]. "shared-key" is the legacy alias
+	// emitted by older api/config.go revisions and survives only so existing
+	// OBJECT_STORE_BACKEND=shared-key manifests keep working. NormalizeBackend
+	// collapses it to BackendDOSpaces. Will be removed once all operator
+	// manifests have migrated.
+	BackendSharedKey = "shared-key"
+)
+
 // Config is the operator-facing configuration for the storage backend. The
 // api wires this from env vars (OBJECT_STORE_* + R2_* + AWS_*) and passes it
 // to Factory() at boot. Each provider documents which fields it requires.
 type Config struct {
 	// Backend selects the implementation. One of: "do-spaces", "r2", "s3",
-	// "minio". Aliases ("digitalocean", "spaces") collapse to "do-spaces";
-	// "cloudflare" → "r2"; "aws" → "s3"; "admin" / "iam" → "minio". Empty
-	// or unknown values land on "minio" — the safest local-dev default.
+	// "minio". Aliases ("digitalocean", "spaces", "shared-key",
+	// "shared-master-key") collapse to "do-spaces"; "cloudflare" → "r2";
+	// "aws" → "s3"; "admin" / "iam" → "minio".
+	//
+	// REQUIRED. Empty or unrecognised values cause Factory to return
+	// ErrUnknownBackend so callers fail loudly at boot instead of silently
+	// degrading to a less-secure backend. This is intentional — defaulting
+	// empty to a real provider (e.g. minio) has historically masked operator
+	// misconfiguration (OBJECT_STORE_BACKEND unset in a production manifest)
+	// until a tenant's data was leaked across the master key.
 	Backend string
 
 	// Shared S3-compatible knobs (all backends).
