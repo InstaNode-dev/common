@@ -108,22 +108,31 @@ func TestFactory_UnknownBackendReturnsError(t *testing.T) {
 // the SUT.
 func TestNormalizeBackend(t *testing.T) {
 	cases := map[string]string{
-		"":               "",
-		"unknown":        "",
-		"do-spaces":      "do-spaces",
-		"DO_SPACES":      "do-spaces",
-		"digitalocean":   "do-spaces",
-		"spaces":         "do-spaces",
-		"r2":             "r2",
-		"cloudflare":     "r2",
-		"cloudflare-r2":  "r2",
-		"s3":             "s3",
-		"aws":            "s3",
-		"AWS-S3":         "s3",
-		"minio":          "minio",
-		"minio-admin":    "minio",
-		"admin":          "minio",
-		"iam":            "minio",
+		"":                  "",
+		"unknown":           "",
+		"do-spaces":         "do-spaces",
+		"DO_SPACES":         "do-spaces",
+		"digitalocean":      "do-spaces",
+		"spaces":            "do-spaces",
+		"r2":                "r2",
+		"cloudflare":        "r2",
+		"cloudflare-r2":     "r2",
+		"s3":                "s3",
+		"aws":               "s3",
+		"AWS-S3":            "s3",
+		"minio":             "minio",
+		"minio-admin":       "minio",
+		"admin":             "minio",
+		"iam":               "minio",
+		// 2026-05-20 DOC-REALITY-DELTA: shared-key alias for do-spaces.
+		// Prod was deployed with OBJECT_STORE_BACKEND=shared-key (legacy
+		// config.go mode-resolution naming); the alias lets the factory
+		// accept it without an operator rename of the k8s secret.
+		"shared-key":        "do-spaces",
+		"shared_key":        "do-spaces",
+		"SHARED-KEY":        "do-spaces",
+		"shared-master-key": "do-spaces",
+		"shared_master_key": "do-spaces",
 	}
 	for in, want := range cases {
 		got := storageprovider.NormalizeBackend(in)
