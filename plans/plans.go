@@ -942,7 +942,11 @@ plans:
       team_members: 10
       vault_max_entries: 200
       vault_envs_allowed: []
-      deployments_apps: 5
+      # B6-P3 (BugBash 2026-05-20, wave-3 consolidated): bumped from 5 → 50.
+      # Pro's deployments_apps = 10; the previous Growth value of 5 was a
+      # tier-ladder inversion (Growth $99/mo < Pro $49/mo on a customer-
+      # facing dimension). Kept synchronised with api/plans.yaml.
+      deployments_apps: 50
       backup_retention_days: 30
       backup_restore_enabled: true
       manual_backups_per_day: 100
