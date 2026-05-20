@@ -39,9 +39,21 @@ type Config struct {
 
 // NormalizeBackend maps the operator-facing value (with all the historical
 // aliases) onto one of the four canonical backend strings.
+//
+// Alias notes (2026-05-20 DOC-REALITY-DELTA-2026-05-20 close-out):
+// "shared-key" collapses to "do-spaces" because prod was deployed with
+// OBJECT_STORE_BACKEND=shared-key (the older `api/internal/config.go`
+// legacy mode-resolution naming). The platform's shipped DO Spaces backend
+// uses a single master Spaces access key + per-tenant key-prefix isolation
+// — the "shared key" describes the underlying credential model, while
+// "do-spaces" names the cloud provider. Operators can use either string;
+// they resolve to the same implementation. Same applies to "shared-master-key"
+// (the storage-mode label surfaced in /storage/new responses).
 func NormalizeBackend(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "do-spaces", "do_spaces", "dospaces", "do", "digitalocean", "spaces":
+	case "do-spaces", "do_spaces", "dospaces", "do", "digitalocean", "spaces",
+		"shared-key", "shared_key", "sharedkey",
+		"shared-master-key", "shared_master_key":
 		return "do-spaces"
 	case "r2", "cloudflare", "cf-r2", "cloudflare-r2":
 		return "r2"
