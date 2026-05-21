@@ -449,7 +449,8 @@ func TestDeploymentsAppsLimit_Tiers(t *testing.T) {
 		"hobby_plus must allow 2 deployment apps (doubles hobby's 1, vs pro's 10)")
 	assert.Equal(t, 10, r.DeploymentsAppsLimit("pro"))
 	assert.Equal(t, -1, r.DeploymentsAppsLimit("team"))
-	assert.Equal(t, 5, r.DeploymentsAppsLimit("growth"))
+	assert.Equal(t, 50, r.DeploymentsAppsLimit("growth"),
+		"growth allows 50 deployment apps (wave-3 BugBash bumped from 5 → 50, matching plans.yaml)")
 }
 
 // TestHobbyPlus_TierMatrix is the W11 lock-in test for the hobby_plus tier.

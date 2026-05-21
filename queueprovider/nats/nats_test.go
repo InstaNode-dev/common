@@ -216,3 +216,68 @@ func TestNATS_Revoke_PushesAccountUpdate(t *testing.T) {
 		"Revoke should have pushed an updated claim for the account")
 	assert.Equal(t, creds.KeyID, pusher.pushes[1].Pub)
 }
+
+// TestNATS_IssueExposesAccountSeed_AndRevokeWithSeed_RoundTrips verifies the
+// fix for BugBash 2026-05-21 A04-F3: migration 060 added
+// `resources.queue_account_seed_encrypted` to make revocation survive a
+// provisioner restart, but the column was never written because IssueTenant
+// Credentials discarded the seed. This test asserts that:
+//
+//  1. IssueTenantCredentials returns a non-empty TenantCreds.AccountSeed
+//     whose NKey prefix is "SA" (the canonical NATS account-seed prefix),
+//  2. The returned seed parses cleanly as an account NKey, and
+//  3. Passing that seed back to RevokeWithSeed re-signs and pushes the
+//     account claim — proving the round-trip works WITHOUT the in-memory
+//     accountCache (which is what a process restart would have lost).
+//
+// Coverage block (rule 17):
+//
+//	Symptom:        resources.queue_account_seed_encrypted always NULL; revocation no-ops after pod restart
+//	Enumeration:    rg -n "AccountSeed\|queue_account_seed_encrypted" common/ api/ worker/
+//	Sites found:    3 (provider.go TenantCreds field, nats.go IssueTenant return, RevokeWithSeed param)
+//	Sites touched:  all 3 in common; api + worker tracked separately in cross-repo fix
+//	Coverage test:  this test — fails the moment AccountSeed is dropped from the return value
+func TestNATS_IssueExposesAccountSeed_AndRevokeWithSeed_RoundTrips(t *testing.T) {
+	seed := newOperatorSeed(t)
+	p, err := queueprovider.Factory(queueprovider.Config{
+		Backend:          "nats",
+		Host:             "nats.test.local",
+		NATSOperatorSeed: seed,
+	})
+	require.NoError(t, err)
+	natsProv := p.(*natsprov.Provider)
+	pusher := &recordingPusher{}
+	natsProv.SetResolverPusher(pusher)
+
+	creds, err := p.IssueTenantCredentials(context.Background(), queueprovider.IssueRequest{
+		ResourceToken: "tok-seed-roundtrip",
+		Subject:       "tenant_seedroundtrip.",
+	})
+	require.NoError(t, err)
+
+	// (1) AccountSeed is populated and looks like a NATS account seed.
+	require.NotEmpty(t, creds.AccountSeed,
+		"AccountSeed must be exposed on TenantCreds — without it migration 060's queue_account_seed_encrypted column is dead weight and post-restart revocation silently no-ops")
+	assert.True(t, strings.HasPrefix(creds.AccountSeed, "SA"),
+		"AccountSeed must have NKey account-seed prefix SA — got prefix %q", creds.AccountSeed[:2])
+
+	// (2) AccountSeed parses cleanly as an account NKey.
+	kp, err := nkeys.FromSeed([]byte(creds.AccountSeed))
+	require.NoError(t, err, "AccountSeed must parse as an nkeys account seed")
+	pub, err := kp.PublicKey()
+	require.NoError(t, err)
+	assert.Equal(t, creds.KeyID, pub,
+		"AccountSeed's derived public key must match the TenantCreds.KeyID (account pub) so RevokeWithSeed targets the right account")
+
+	// (3) Simulate a process restart by wiping the in-memory cache, then
+	// prove RevokeWithSeed alone (no cache hit) re-pushes the claim. This
+	// is the exact failure path migration 060 was designed to eliminate.
+	require.Len(t, pusher.pushes, 1, "issue should have pushed once")
+	natsProv.PurgeAccountCacheForTest()
+	err = natsProv.RevokeWithSeed(context.Background(), creds.AccountSeed)
+	require.NoError(t, err)
+	require.Len(t, pusher.pushes, 2,
+		"RevokeWithSeed must push the revocation claim even when accountCache is empty (post-restart scenario)")
+	assert.Equal(t, creds.KeyID, pusher.pushes[1].Pub,
+		"revocation push must target the same account public key as the original issue")
+}
