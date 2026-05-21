@@ -327,10 +327,12 @@ func (p *Provider) IssueTenantCredentials(ctx context.Context, in queueprovider.
 		expiresAt = &t
 	}
 
-	// Wipe the account seed from memory once we've finished signing; the
-	// api/provisioner persist accountSeed separately (encrypted at rest) so
-	// Revoke can re-sign the updated claim later.
-	_ = accountSeed // keep ref alive until here; do NOT log
+	// Return the account seed to the caller (api/worker) so it can be
+	// encrypted at rest in resources.queue_account_seed_encrypted (migration
+	// 060). Without this, revocation after process restart is impossible —
+	// the in-memory accountCache is the only other copy. The caller MUST
+	// treat AccountSeed as a secret and MUST NOT log it; this is enforced
+	// upstream by the api crypto path that wraps the value before persist.
 
 	return &queueprovider.TenantCreds{
 		JWT:           userJWT,
@@ -341,6 +343,7 @@ func (p *Provider) IssueTenantCredentials(ctx context.Context, in queueprovider.
 		ExpiresAt:     expiresAt,
 		KeyID:         accountPub,
 		AuthMode:      queueprovider.AuthModeIsolated,
+		AccountSeed:   string(accountSeed), // secret — caller encrypts before persist; NEVER log
 	}, nil
 }
 
