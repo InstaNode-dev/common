@@ -33,9 +33,13 @@
 // "degraded" returns "degraded"+200, otherwise "ok"+200.
 //
 // SECRETS — check implementations MUST NOT include secret material in
-// LastError (e.g. the Brevo API key in a probe URL). Each adapter scrubs
-// upstream errors to a short fixed string before returning. See the
-// adapters in api/internal/handlers/readyz.go for the canonical pattern.
+// LastError (e.g. the Brevo API key in a probe URL). The shared scrub()
+// helper in checks.go redacts known secret shapes (DB passwords, URL
+// credentials, Bearer tokens, hex strings >=32, xkeysib-/sk-/rzp_
+// prefixes) BEFORE truncating to 80 chars. Truncate-first leaks the
+// secret in the first 80 chars of the upstream message — Wave-3 audit
+// 2026-05-21. See the adapters in api/internal/handlers/readyz.go for
+// the canonical pattern.
 package readiness
 
 import (
