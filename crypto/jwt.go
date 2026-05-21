@@ -9,6 +9,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// jwtSigningMethod is the signing method used by SignJWT and SignOnboardingJWT.
+// Overridable in tests to exercise the SignedString error path (e.g. by
+// pointing at a SigningMethodHMAC whose hash is unavailable); production code
+// always uses HS256.
+var jwtSigningMethod jwt.SigningMethod = jwt.SigningMethodHS256
+
 // OnboardingClaims holds the JWT payload for anonymous-to-registered conversion.
 type OnboardingClaims struct {
 	Fingerprint   string   `json:"fp"`
@@ -49,7 +55,7 @@ func SignJWT(secret []byte, claims InstantClaims) (string, error) {
 	if claims.IssuedAt == nil {
 		claims.IssuedAt = jwt.NewNumericDate(time.Now().UTC())
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token := jwt.NewWithClaims(jwtSigningMethod, claims)
 	signed, err := token.SignedString(secret)
 	if err != nil {
 		return "", &ErrJWTSign{Cause: err}
@@ -99,7 +105,7 @@ func SignOnboardingJWT(secret []byte, claims OnboardingClaims) (string, string, 
 		ExpiresAt: jwt.NewNumericDate(now.Add(7 * 24 * time.Hour)),
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token := jwt.NewWithClaims(jwtSigningMethod, claims)
 	signed, err := token.SignedString(secret)
 	if err != nil {
 		return "", "", &ErrJWTSign{Cause: err}
