@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -144,16 +145,83 @@ func mapHTTPStatus(code int) CheckResult {
 	}
 }
 
-// scrub trims an error to a short fixed string for the wire. We deliberately
-// drop the full message — a /readyz that surfaces a raw "pq: password
-// authentication failed for user 'instant'" would leak the username on
-// every probe.
+// secretPatterns is the redaction list applied by scrub() before any
+// truncation. Order matters — broad URL-credential matchers run before
+// the catch-all hex-string matcher so a hex secret embedded in a URL is
+// neutralised in one pass rather than two.
+//
+// Why this exists: /readyz is publicly reachable. A real upstream error
+// can contain a credential fragment ("pq: ... password=abc123 ...",
+// "dial tcp postgres://admin:s3cr3t@host", "401 Authorization: Bearer
+// xkeysib-..."). Truncating to 80 chars is NOT enough — the first 80
+// chars of the message frequently still contain the secret.
+//
+// Each entry is (regex, replacement). The replacement preserves the
+// matched prefix where useful for debuggability (e.g. "password=" stays
+// so operators see the SHAPE of the error) but the value is replaced
+// with "REDACTED".
+var secretPatterns = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	// URL-embedded credentials: scheme://user:pass@host
+	// Must run FIRST — covers postgres://admin:s3cr3t@db.example.com so
+	// later patterns don't have to claw the value back out.
+	{regexp.MustCompile(`(?i)([a-z][a-z0-9+.\-]*://)[^/\s:@]+:[^/\s@]+@`), `${1}REDACTED:REDACTED@`},
+
+	// Known secret-shape prefixes: Brevo SMTP keys (xkeysib-), Stripe-style
+	// keys (sk-), Razorpay (rzp_*). Each token runs to the next whitespace.
+	{regexp.MustCompile(`xkeysib-\S+`), `REDACTED`},
+	{regexp.MustCompile(`sk-\S+`), `REDACTED`},
+	{regexp.MustCompile(`rzp_\S+`), `REDACTED`},
+
+	// HTTP Authorization header. Case-insensitive on the scheme name so
+	// "authorization: bearer ..." and "Authorization: Bearer ..." both
+	// neutralise.
+	{regexp.MustCompile(`(?i)(authorization:\s*bearer\s+)\S+`), `${1}REDACTED`},
+	{regexp.MustCompile(`(?i)(authorization:\s*basic\s+)\S+`), `${1}REDACTED`},
+
+	// Postgres / pq form: "password=abc123", "passwd=abc123", "pwd=abc123".
+	// Case-insensitive so "Password=" also redacts.
+	{regexp.MustCompile(`(?i)(password=)\S+`), `${1}REDACTED`},
+	{regexp.MustCompile(`(?i)(passwd=)\S+`), `${1}REDACTED`},
+	{regexp.MustCompile(`(?i)(pwd=)\S+`), `${1}REDACTED`},
+
+	// pq username leak: 'password authentication failed for user "instant"'.
+	// Treat usernames as semi-sensitive — a leaked user name still gives
+	// an attacker half the auth pair.
+	{regexp.MustCompile(`(?i)(for user )"[^"]+"`), `${1}"REDACTED"`},
+	{regexp.MustCompile(`(?i)(for user )'[^']+'`), `${1}'REDACTED'`},
+
+	// Generic hex-secret heuristic: any run of 32+ hex chars. Catches
+	// AES_KEY fragments, opaque tokens, base16-encoded HMACs, etc.
+	// Runs LAST so it doesn't fight the structured patterns above.
+	{regexp.MustCompile(`[a-fA-F0-9]{32,}`), `REDACTED`},
+}
+
+// scrub redacts known secret shapes then truncates to a short fixed
+// string for the wire.
+//
+// SECURITY CONTRACT (Wave-3 audit, 2026-05-21):
+//   - Redaction MUST run before truncation. The first 80 chars of a
+//     real Postgres error frequently contain the secret, so truncate-
+//     first leaks credentials.
+//   - The function is conservative — when in doubt, redact. The cost
+//     of a false-positive redaction is "the operator has to look at
+//     the upstream's own logs"; the cost of a false-negative is a
+//     credential on a publicly-reachable /readyz endpoint.
+//
+// Callers: PingDB, PingRedis. HTTPHeadCheck and GRPCHealth use
+// scrubNetError which maps to a fixed enum and is already safe.
 func scrub(msg string) string {
-	if len(msg) > 80 {
-		msg = msg[:80]
+	for _, p := range secretPatterns {
+		msg = p.re.ReplaceAllString(msg, p.repl)
 	}
 	// Strip the trailing newline that some upstream errors include.
 	msg = strings.TrimSpace(msg)
+	if len(msg) > 80 {
+		msg = msg[:80]
+	}
 	return msg
 }
 
