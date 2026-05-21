@@ -14,21 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: common
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: InstaNode-dev/proto
           path: proto
         continue-on-error: true
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: common/go.mod
       - name: Generate coverage
         working-directory: common
         run: go test ./... -short -coverprofile=coverage.out -covermode=atomic
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v6
         if: always()
         with:
           files: common/coverage.out
