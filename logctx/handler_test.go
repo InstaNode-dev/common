@@ -181,3 +181,69 @@ func TestHandler_WithAttrsPreservesService(t *testing.T) {
 		t.Errorf("WithAttrs dropped extra attr")
 	}
 }
+
+// TestHandler_WithGroupPreservesService confirms that WithGroup returns a
+// wrapper that still injects service + commit_id, and that the underlying
+// base handler's grouping behaviour is preserved — every subsequent attr
+// lands under the named group. Without this guard a refactor that drops
+// the field copy would silently emit log lines without service / commit_id
+// once any caller used slog.Logger.WithGroup.
+func TestHandler_WithGroupPreservesService(t *testing.T) {
+	buf, h := newTestHandler(t, "api")
+	child := h.WithGroup("grp")
+	if err := child.Handle(context.Background(), newRecord("hi")); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	rec := decode(t, buf)
+	// service + commit_id are added by the wrapper AFTER the group is
+	// active on the base, so they land under "grp" in JSON output. That
+	// is the documented behaviour for slog.Handler.WithGroup composition.
+	grp, ok := rec["grp"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested grp object, got %v", rec)
+	}
+	if grp[FieldService] != "api" {
+		t.Errorf("WithGroup dropped service: %v", grp[FieldService])
+	}
+	if grp[FieldCommitID] == nil {
+		t.Errorf("WithGroup dropped commit_id")
+	}
+}
+
+// TestKeys_WithSettersAcceptNilCtx covers the `if ctx == nil` branch in
+// each of WithTraceID / WithTID / WithTeamID. These branches exist to
+// guard against callers passing nil — slog.Logger.Log historically did
+// this when the user code passed a nil context — and the function must
+// internally fall back to context.Background rather than panic on
+// context.WithValue(nil, …).
+func TestKeys_WithSettersAcceptNilCtx(t *testing.T) {
+	// Each setter must not panic on a nil ctx, and the value must be
+	// retrievable through the matching getter on the returned ctx.
+	tcs := []struct {
+		name string
+		set  func(context.Context) context.Context
+		get  func(context.Context) string
+		want string
+	}{
+		{"trace_id", func(c context.Context) context.Context { return WithTraceID(c, "t-1") }, TraceIDFromContext, "t-1"},
+		{"tid", func(c context.Context) context.Context { return WithTID(c, "j-2") }, TIDFromContext, "j-2"},
+		{"team_id", func(c context.Context) context.Context { return WithTeamID(c, "tm-3") }, TeamIDFromContext, "tm-3"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("setter panicked on nil ctx: %v", r)
+				}
+			}()
+			//nolint:staticcheck // intentionally passing nil ctx to exercise the guard
+			ctx := tc.set(nil)
+			if ctx == nil {
+				t.Fatal("setter returned nil ctx")
+			}
+			if got := tc.get(ctx); got != tc.want {
+				t.Errorf("getter = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
