@@ -141,6 +141,21 @@ type TenantCreds struct {
 	// Echoed in the API response so the caller knows whether isolation is
 	// actually being enforced for this resource.
 	AuthMode string
+
+	// AccountSeed is the NATS account NKey seed (operator-mode backends only)
+	// — required for revocation after process restart. The api MUST encrypt
+	// this value at rest (AES-256-GCM keyring, same path as connection_url)
+	// and persist it in the resources.queue_account_seed_encrypted column
+	// (migration 060). On teardown the api/worker decrypts and passes the
+	// seed back to RevokeWithSeed so the account claim can be re-signed and
+	// pushed to the resolver even after the in-memory accountCache has been
+	// lost to a pod restart.
+	//
+	// Treated as a secret. NEVER log this field — it is a private NKey seed
+	// (format "SA...") that grants account-level signing authority. Backends
+	// that don't use NKey/JWT (RabbitMQ, Kafka skeletons, legacy_open) leave
+	// this empty.
+	AccountSeed string
 }
 
 // Capabilities describes what isolation a backend can ENFORCE.
