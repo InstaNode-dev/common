@@ -2,10 +2,13 @@ package readiness_test
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -394,5 +397,286 @@ func TestPingRedis_PreservesShortNonSecretError(t *testing.T) {
 	res := readiness.PingRedis(badp, time.Second)(context.Background())
 	if res.LastError != "connection refused" {
 		t.Fatalf("want preserved non-secret error, got %q", res.LastError)
+	}
+}
+
+// ---------------------------------------------------------------------
+// PingDB — defensive coverage. The package contract is that a nil
+// *sql.DB returns "db_not_configured" (so a partially-wired service
+// doesn't panic at probe time) and a real ping failure is surfaced as
+// failed with the error scrubbed.
+// ---------------------------------------------------------------------
+
+// TestPingDB_NilDBIsFailed — the worker config can leave the customer DB
+// handle empty; the check should fail-with-explanation rather than panic.
+func TestPingDB_NilDBIsFailed(t *testing.T) {
+	res := readiness.PingDB(nil, time.Second)(context.Background())
+	if res.Status != readiness.StatusFailed {
+		t.Fatalf("want failed for nil db, got %q", res.Status)
+	}
+	if res.LastError != "db_not_configured" {
+		t.Fatalf("want db_not_configured, got %q", res.LastError)
+	}
+}
+
+// fakeDBDriver implements database/sql/driver.Driver with an Open that
+// always fails. Lets us exercise PingDB's error path without dragging
+// a real DB driver into common/. The error message intentionally
+// includes a password-shaped fragment so we also verify scrub().
+type fakeDBDriver struct{}
+
+func (fakeDBDriver) Open(name string) (driver.Conn, error) {
+	return nil, errors.New(`pq: connection failed: password=hunter2letmein invalid`)
+}
+
+var fakeDBRegisterOnce sync.Once
+
+func registerFakeDB(t *testing.T) {
+	t.Helper()
+	fakeDBRegisterOnce.Do(func() {
+		sql.Register("readiness_fake_db", fakeDBDriver{})
+	})
+}
+
+// TestPingDB_PingFailureIsFailed exercises the ping-error path on a real
+// *sql.DB whose driver always returns a credential-bearing error. The
+// LastError must be present, must NOT include the password, and the
+// status must be failed.
+func TestPingDB_PingFailureIsFailed(t *testing.T) {
+	registerFakeDB(t)
+	db, err := sql.Open("readiness_fake_db", "ignored")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	res := readiness.PingDB(db, 200*time.Millisecond)(context.Background())
+	if res.Status != readiness.StatusFailed {
+		t.Fatalf("want failed, got %q", res.Status)
+	}
+	if res.LastError == "" {
+		t.Fatalf("want LastError populated on ping failure")
+	}
+	if strings.Contains(res.LastError, "hunter2letmein") {
+		t.Fatalf("PingDB leaked password through LastError: %q", res.LastError)
+	}
+}
+
+// ---------------------------------------------------------------------
+// mapHTTPStatus — additional branch coverage. 408 / 429 / generic 4xx
+// each route to a distinct (status, error) bucket; the existing 200
+// + 401 + 502 + timeout tests cover the other arms.
+// ---------------------------------------------------------------------
+
+// TestHTTPHeadCheck_408IsFailed — 408 Request Timeout from the upstream
+// is symmetric with our own timeout: the upstream is malfunctioning,
+// failed + upstream_408.
+func TestHTTPHeadCheck_408IsFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(408)
+	}))
+	defer srv.Close()
+
+	res := readiness.HTTPHeadCheck(nil, "GET", srv.URL, nil, time.Second)(context.Background())
+	if res.Status != readiness.StatusFailed {
+		t.Fatalf("want failed for 408, got %q", res.Status)
+	}
+	if !strings.Contains(res.LastError, "408") {
+		t.Fatalf("want LastError to include 408, got %q", res.LastError)
+	}
+}
+
+// TestHTTPHeadCheck_429IsFailed — 429 Too Many Requests means the
+// upstream is rate-limiting us. Failed so the NR alert fires; not
+// degraded because continued probes would only make it worse.
+func TestHTTPHeadCheck_429IsFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(429)
+	}))
+	defer srv.Close()
+
+	res := readiness.HTTPHeadCheck(nil, "GET", srv.URL, nil, time.Second)(context.Background())
+	if res.Status != readiness.StatusFailed {
+		t.Fatalf("want failed for 429, got %q", res.Status)
+	}
+	if !strings.Contains(res.LastError, "429") {
+		t.Fatalf("want LastError to include 429, got %q", res.LastError)
+	}
+}
+
+// TestHTTPHeadCheck_Generic4xxIsDegraded — a non-auth, non-throttle 4xx
+// (e.g. 404 because the probe URL is wrong) means the probe shape is
+// off but the upstream is reachable. Degraded with http_<code> so the
+// operator knows to fix the probe config, not the upstream.
+func TestHTTPHeadCheck_Generic4xxIsDegraded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	res := readiness.HTTPHeadCheck(nil, "GET", srv.URL, nil, time.Second)(context.Background())
+	if res.Status != readiness.StatusDegraded {
+		t.Fatalf("want degraded for 404, got %q", res.Status)
+	}
+	if !strings.Contains(res.LastError, "404") {
+		t.Fatalf("want LastError to include 404, got %q", res.LastError)
+	}
+}
+
+// TestHTTPHeadCheck_BadURLBuildFails — a malformed URL trips the
+// http.NewRequestWithContext error path, which maps to a fixed
+// "request_build_failed" string (never the URL itself, which could
+// contain credentials).
+func TestHTTPHeadCheck_BadURLBuildFails(t *testing.T) {
+	// Control character in URL forces NewRequestWithContext to fail.
+	res := readiness.HTTPHeadCheck(nil, "GET", "http://invalid\x7fhost/", nil, time.Second)(context.Background())
+	if res.Status != readiness.StatusFailed {
+		t.Fatalf("want failed for bad URL, got %q", res.Status)
+	}
+	if res.LastError != "request_build_failed" {
+		t.Fatalf("want request_build_failed, got %q", res.LastError)
+	}
+}
+
+// TestHTTPHeadCheck_DefaultMethodIsGET — passing method="" defaults to
+// GET. Pins the contract so a future refactor that drops the default
+// doesn't silently start sending empty-method requests.
+func TestHTTPHeadCheck_DefaultMethodIsGET(t *testing.T) {
+	var seenMethod string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenMethod = r.Method
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	_ = readiness.HTTPHeadCheck(nil, "", srv.URL, nil, time.Second)(context.Background())
+	if seenMethod != http.MethodGet {
+		t.Fatalf("want default method GET, got %q", seenMethod)
+	}
+}
+
+// ---------------------------------------------------------------------
+// GRPCHealth — defensive: nil checker returns failed instead of panicking.
+// ---------------------------------------------------------------------
+
+// TestGRPCHealth_NilCheckerIsFailed — symmetric with PingDB/PingRedis.
+// A boot-time mis-wire (the provisioner client field is nil) must
+// surface as a check failure, not a panic in the readiness handler.
+func TestGRPCHealth_NilCheckerIsFailed(t *testing.T) {
+	res := readiness.GRPCHealth(nil, time.Second)(context.Background())
+	if res.Status != readiness.StatusFailed {
+		t.Fatalf("want failed for nil checker, got %q", res.Status)
+	}
+	if res.LastError != "grpc_not_configured" {
+		t.Fatalf("want grpc_not_configured, got %q", res.LastError)
+	}
+}
+
+// ---------------------------------------------------------------------
+// scrubNetError — exhaustive enum coverage. The function maps net.Error
+// shapes to short stable strings; each branch must be exercised.
+// scrubNetError is package-internal but reachable through GRPCHealth
+// (which wraps it) and HTTPHeadCheck (via client.Do failures).
+// ---------------------------------------------------------------------
+
+// TestScrubNetError_NilIsEmpty — defensive nil handling.
+func TestScrubNetError_NilIsEmpty(t *testing.T) {
+	// Reachable indirectly via GRPCHealth with a checker that returns nil:
+	// we already cover that as the OK path. For the nil-error mapping
+	// specifically, we exercise it through a GRPCHealth checker that
+	// returns nil on the call path (already tested). This test serves
+	// as documentation that the package guards nil — no separate assert.
+	res := readiness.GRPCHealth(fakeGRPC{err: nil}, time.Second)(context.Background())
+	if res.Status != readiness.StatusOK {
+		t.Fatalf("want ok for nil error, got %q", res.Status)
+	}
+}
+
+// TestScrubNetError_DNSFailure — "no such host" maps to "dns_failure".
+// Exercised via GRPCHealth so the scrubNetError function is hit on the
+// real callsite.
+func TestScrubNetError_DNSFailure(t *testing.T) {
+	res := readiness.GRPCHealth(fakeGRPC{err: errors.New("dial tcp: lookup nowhere.invalid: no such host")}, time.Second)(context.Background())
+	if res.Status != readiness.StatusFailed {
+		t.Fatalf("want failed, got %q", res.Status)
+	}
+	if res.LastError != "dns_failure" {
+		t.Fatalf("want dns_failure, got %q", res.LastError)
+	}
+}
+
+// TestScrubNetError_TLSFailure — "x509" or "TLS" in the error maps to
+// "tls_failure". Pins the auth-blip vs cert-blip distinction.
+func TestScrubNetError_TLSFailure(t *testing.T) {
+	res := readiness.GRPCHealth(fakeGRPC{err: errors.New("x509: certificate signed by unknown authority")}, time.Second)(context.Background())
+	if res.Status != readiness.StatusFailed {
+		t.Fatalf("want failed, got %q", res.Status)
+	}
+	if res.LastError != "tls_failure" {
+		t.Fatalf("want tls_failure, got %q", res.LastError)
+	}
+
+	// Also exercise the bare "TLS" string match.
+	res2 := readiness.GRPCHealth(fakeGRPC{err: errors.New("remote error: TLS handshake failure")}, time.Second)(context.Background())
+	if res2.LastError != "tls_failure" {
+		t.Fatalf("want tls_failure for TLS handshake, got %q", res2.LastError)
+	}
+}
+
+// TestScrubNetError_ConnectionRefused — the canonical down-upstream
+// shape maps to "connection_refused".
+func TestScrubNetError_ConnectionRefused(t *testing.T) {
+	res := readiness.GRPCHealth(fakeGRPC{err: errors.New("dial tcp 127.0.0.1:50051: connect: connection refused")}, time.Second)(context.Background())
+	if res.LastError != "connection_refused" {
+		t.Fatalf("want connection_refused, got %q", res.LastError)
+	}
+}
+
+// TestScrubNetError_TimeoutAndDeadline — both "timeout" and "deadline
+// exceeded" route to the same stable string.
+func TestScrubNetError_TimeoutAndDeadline(t *testing.T) {
+	res := readiness.GRPCHealth(fakeGRPC{err: errors.New("operation timeout")}, time.Second)(context.Background())
+	if res.LastError != "timeout" {
+		t.Fatalf("want timeout, got %q", res.LastError)
+	}
+	res2 := readiness.GRPCHealth(fakeGRPC{err: errors.New("context deadline exceeded")}, time.Second)(context.Background())
+	if res2.LastError != "timeout" {
+		t.Fatalf("want timeout for deadline exceeded, got %q", res2.LastError)
+	}
+}
+
+// TestScrubNetError_GenericLongError — an unrecognized error longer
+// than 60 chars is truncated to 60. Preserves debuggability without
+// blowing the wire budget.
+func TestScrubNetError_GenericLongError(t *testing.T) {
+	long := strings.Repeat("x", 200)
+	res := readiness.GRPCHealth(fakeGRPC{err: errors.New(long)}, time.Second)(context.Background())
+	if len(res.LastError) > 60 {
+		t.Fatalf("scrubNetError did not truncate long error: len=%d", len(res.LastError))
+	}
+}
+
+// TestScrubNetError_GenericShortError — a short unrecognized error is
+// passed through unchanged.
+func TestScrubNetError_GenericShortError(t *testing.T) {
+	res := readiness.GRPCHealth(fakeGRPC{err: errors.New("weird upstream")}, time.Second)(context.Background())
+	if res.LastError != "weird upstream" {
+		t.Fatalf("want preserved short error, got %q", res.LastError)
+	}
+}
+
+// TestFormatTimeout — the helper formats a duration as <ms>ms.
+// formatTimeout is exported only via export_test.go (no caller in
+// production code today); pinning the shape here keeps the helper
+// usable for the next consumer without surprise.
+func TestFormatTimeout(t *testing.T) {
+	if got := readiness.FormatTimeoutForTest(250 * time.Millisecond); got != "250ms" {
+		t.Fatalf("want 250ms, got %q", got)
+	}
+	if got := readiness.FormatTimeoutForTest(time.Second); got != "1000ms" {
+		t.Fatalf("want 1000ms, got %q", got)
+	}
+	if got := readiness.FormatTimeoutForTest(0); got != "0ms" {
+		t.Fatalf("want 0ms, got %q", got)
 	}
 }
