@@ -27,8 +27,9 @@ jobs:
           go-version-file: common/go.mod
       - name: Generate coverage
         working-directory: common
-        run: go test ./... -short -coverprofile=coverage.out -covermode=atomic || true
+        run: go test ./... -short -coverprofile=coverage.out -covermode=atomic
       - uses: codecov/codecov-action@v4
+        if: always()
         with:
           files: common/coverage.out
           flags: common
