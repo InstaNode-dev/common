@@ -61,6 +61,17 @@ func init() {
 	queueprovider.Register("nats", builder)
 }
 
+// Test seams. These are package-level vars so unit tests can substitute
+// failing implementations and exercise the error branches that the real
+// nkeys/jwt libraries practically never hit. In production they alias the
+// upstream constructors 1:1.
+var (
+	createAccountKP = nkeys.CreateAccount
+	createUserKP    = nkeys.CreateUser
+	formatUserCreds = jwt.FormatUserConfig
+	parseOperatorKP = nkeys.FromSeed
+)
+
 // builder is the Factory entry point. Returns ErrAuthFailure-flavored errors
 // when the operator seed is unparseable, so the caller can degrade gracefully
 // during the pre-cutover window.
@@ -96,7 +107,7 @@ func builder(cfg queueprovider.Config) (queueprovider.QueueCredentialProvider, e
 	// understands operator mode first, populate the secret + flip
 	// nats.yaml later.
 	if cfg.NATSOperatorSeed != "" {
-		opKP, err := nkeys.FromSeed([]byte(cfg.NATSOperatorSeed))
+		opKP, err := parseOperatorKP([]byte(cfg.NATSOperatorSeed))
 		if err != nil {
 			return nil, fmt.Errorf("%w: parse operator seed: %v", queueprovider.ErrAuthFailure, err)
 		}
@@ -220,7 +231,7 @@ func (p *Provider) IssueTenantCredentials(ctx context.Context, in queueprovider.
 	}
 
 	// 1. Mint account NKey pair.
-	accountKP, err := nkeys.CreateAccount()
+	accountKP, err := createAccountKP()
 	if err != nil {
 		return nil, fmt.Errorf("queueprovider.nats: create account NKey: %w", err)
 	}
@@ -272,7 +283,7 @@ func (p *Provider) IssueTenantCredentials(ctx context.Context, in queueprovider.
 	})
 
 	// 4. Mint user NKey pair + sign user JWT with the account seed.
-	userKP, err := nkeys.CreateUser()
+	userKP, err := createUserKP()
 	if err != nil {
 		return nil, fmt.Errorf("queueprovider.nats: create user NKey: %w", err)
 	}
@@ -316,7 +327,7 @@ func (p *Provider) IssueTenantCredentials(ctx context.Context, in queueprovider.
 		return nil, fmt.Errorf("queueprovider.nats: sign user JWT: %w", err)
 	}
 
-	credsFile, err := jwt.FormatUserConfig(userJWT, userSeed)
+	credsFile, err := formatUserCreds(userJWT, userSeed)
 	if err != nil {
 		return nil, fmt.Errorf("queueprovider.nats: format .creds blob: %w", err)
 	}
@@ -397,7 +408,7 @@ func (p *Provider) RevokeWithSeed(ctx context.Context, accountSeed string) error
 	if !p.operatorReady || accountSeed == "" {
 		return nil
 	}
-	kp, err := nkeys.FromSeed([]byte(accountSeed))
+	kp, err := parseOperatorKP([]byte(accountSeed))
 	if err != nil {
 		return fmt.Errorf("queueprovider.nats: parse account seed: %w", err)
 	}
