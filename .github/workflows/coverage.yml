@@ -14,24 +14,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: common
           # Full history so diff-cover can resolve origin/<base_ref> for the
           # patch-coverage gate below (shallow clones lack the base commit).
           fetch-depth: 0
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: InstaNode-dev/proto
           path: proto
         continue-on-error: true
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: common/go.mod
       - name: Generate coverage
         working-directory: common
         run: go test ./... -short -coverprofile=coverage.out -covermode=atomic
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v6
         if: always()
         with:
           files: common/coverage.out
@@ -44,7 +44,7 @@ jobs:
       # Tool: diff-cover (https://github.com/Bachmann1234/diff-cover) reads a
       # Cobertura report + the git diff vs the base branch.
       # ------------------------------------------------------------------
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: github.event_name == 'pull_request'
         with:
           python-version: '3.12'
