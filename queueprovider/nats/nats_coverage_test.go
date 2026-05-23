@@ -695,24 +695,10 @@ func TestNATS_Issue_UserEncode_Fail(t *testing.T) {
 // parseOperatorKP hook returns a KP that signs ONCE (during initial issue)
 // but fails on the second call (during revoke). Simpler: use a counting KP.
 func TestNATS_Revoke_Encode_Fail(t *testing.T) {
-	type signCountingKP struct {
-		brokenKP
-		signCount *int
-	}
-
-	// We need a KP that wraps a real signer for the first N calls then
-	// fails. Easiest: real operator KP for issue + a separate provider for
-	// revoke that has a fail-sign operator KP. But that doesn't share the
-	// cache. Solution: issue with a real operator, then artificially poison
-	// the operatorKP via parseOperatorKP for a separate builder, swap the
-	// pusher and accountCache from the first provider — that's too brittle.
-	//
-	// Cleaner: drive a single provider whose operator KP fails Sign() on
-	// the SECOND call. The first call (account JWT encode during issue)
-	// succeeds; the second call (account JWT re-encode during revoke)
-	// fails.
-	_ = signCountingKP{}
-
+	// Drive a single provider whose operator KP fails Sign() on the SECOND
+	// call. The first call (account JWT encode during issue) succeeds; the
+	// second call (account JWT re-encode during revoke) fails. Implemented
+	// via flakeyKP below.
 	realOpKP, err := nkeys.CreateOperator()
 	require.NoError(t, err)
 	realOpPub, err := realOpKP.PublicKey()
