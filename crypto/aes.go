@@ -10,6 +10,11 @@ import (
 	"io"
 )
 
+// randReader is the source of randomness for nonce generation. Overridable in
+// tests to exercise the io.ReadFull error path; production code always uses
+// crypto/rand.Reader.
+var randReader io.Reader = rand.Reader
+
 // ErrDecrypt is returned when decryption fails.
 type ErrDecrypt struct {
 	Cause error
@@ -58,7 +63,7 @@ func Encrypt(key []byte, plaintext string) (string, error) {
 	}
 
 	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+	if _, err := io.ReadFull(randReader, nonce); err != nil {
 		return "", &ErrEncrypt{Cause: err}
 	}
 
