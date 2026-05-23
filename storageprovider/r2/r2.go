@@ -223,7 +223,7 @@ func (p *Provider) issueLongLivedKey(ctx context.Context, in storageprovider.Iss
 	if err != nil {
 		return nil, fmt.Errorf("r2.issueLongLivedKey: do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("r2.issueLongLivedKey: %d: %s", resp.StatusCode, string(respBody))
@@ -284,7 +284,7 @@ func (p *Provider) issueTempCreds(ctx context.Context, in storageprovider.IssueR
 	if err != nil {
 		return nil, fmt.Errorf("r2.issueTempCreds: do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("r2.issueTempCreds: %d: %s", resp.StatusCode, string(respBody))
@@ -343,7 +343,7 @@ func (p *Provider) RevokeTenantCredentials(ctx context.Context, keyID string) er
 	if err != nil {
 		return fmt.Errorf("r2.RevokeTenantCredentials: do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		// Key already gone — idempotent.
 		return nil
