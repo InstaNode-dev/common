@@ -163,7 +163,7 @@ func TestMustDuration(t *testing.T) {
 
 type fakePinger struct{ err error }
 
-func (f fakePinger) Ping(ctx context.Context) readiness.PingResult { return fakeResult{f.err} }
+func (f fakePinger) Ping(ctx context.Context) readiness.PingResult { return fakeResult(f) }
 
 type fakeResult struct{ err error }
 

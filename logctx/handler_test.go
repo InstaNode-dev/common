@@ -119,7 +119,10 @@ func TestHandler_NilCtx(t *testing.T) {
 		}
 	}()
 	// Pass an explicitly nil context. The handler must treat it as empty.
-	if err := h.Handle(nil, newRecord("hello")); err != nil {
+	// Use a typed nil var (not a literal nil) so SA1012 doesn't flag this
+	// intentional nil-tolerance test.
+	var nilCtx context.Context
+	if err := h.Handle(nilCtx, newRecord("hello")); err != nil {
 		t.Fatalf("Handle: %v", err)
 	}
 	rec := decode(t, buf)
