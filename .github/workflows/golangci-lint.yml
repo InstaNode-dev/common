@@ -18,20 +18,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: common
       # Sibling checkout (proto) — common itself is the repo under test, so
       # only proto is fetched as a sibling for the replace directive.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: InstaNode-dev/proto
           path: proto
         continue-on-error: true
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: common/go.mod
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           working-directory: common
