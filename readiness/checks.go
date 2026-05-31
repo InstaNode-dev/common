@@ -182,10 +182,21 @@ var secretPatterns = []struct {
 	{regexp.MustCompile(`(?i)(authorization:\s*basic\s+)\S+`), `${1}REDACTED`},
 
 	// Postgres / pq form: "password=abc123", "passwd=abc123", "pwd=abc123".
-	// Case-insensitive so "Password=" also redacts.
-	{regexp.MustCompile(`(?i)(password=)\S+`), `${1}REDACTED`},
-	{regexp.MustCompile(`(?i)(passwd=)\S+`), `${1}REDACTED`},
-	{regexp.MustCompile(`(?i)(pwd=)\S+`), `${1}REDACTED`},
+	// Case-insensitive so "Password=" also redacts. Each pattern accepts
+	// three value shapes — pq's key-value DSN (https://pkg.go.dev/github.com/lib/pq)
+	// supports all of them so a customer connection-URL containing a space
+	// in the password lands in the error message in quoted form:
+	//   bare:           password=secret             (ends at next whitespace)
+	//   single-quoted:  password='complex pass'     (may contain spaces)
+	//   double-quoted:  password="complex pass"     (may contain spaces)
+	// The plain `\S+` form caught only the bare case + the first non-space
+	// token of a quoted value, leaving the rest of the secret on the wire.
+	// 2026-05-31 fix — registry rows in checks_test.go::secretLeakCases
+	// (pq_*_quoted_*) lock the three shapes in CI; the registry-walk test
+	// fails closed on any regression to the bare `\S+` form.
+	{regexp.MustCompile(`(?i)(password=)(?:'[^']*'|"[^"]*"|\S+)`), `${1}REDACTED`},
+	{regexp.MustCompile(`(?i)(passwd=)(?:'[^']*'|"[^"]*"|\S+)`), `${1}REDACTED`},
+	{regexp.MustCompile(`(?i)(pwd=)(?:'[^']*'|"[^"]*"|\S+)`), `${1}REDACTED`},
 
 	// pq username leak: 'password authentication failed for user "instant"'.
 	// Treat usernames as semi-sensitive — a leaked user name still gives

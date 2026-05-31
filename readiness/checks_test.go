@@ -334,6 +334,16 @@ var secretLeakCases = []struct {
 	{"pq_password_kv", `pq: FATAL: password=topsecret123 invalid`, []string{"topsecret123"}},
 	{"pq_passwd_kv", `pq: FATAL: passwd=topsecret123 invalid`, []string{"topsecret123"}},
 	{"pq_pwd_kv", `pq: FATAL: pwd=topsecret123 invalid`, []string{"topsecret123"}},
+	// pq's key-value DSN supports single- and double-quoted password values
+	// when the secret contains whitespace. The bare `\S+` form caught only
+	// the first non-space token, leaving the rest of the secret on the wire.
+	// 2026-05-31 regression rows — each shape must not leak its content.
+	{"pq_password_single_quote", `pq: FATAL: password='top secret with space' invalid`, []string{"top secret with space", "secret with"}},
+	{"pq_password_double_quote", `pq: FATAL: password="top secret with space" invalid`, []string{"top secret with space", "secret with"}},
+	{"pq_passwd_single_quote", `pq: FATAL: passwd='multi word secret' invalid`, []string{"multi word secret", "word secret"}},
+	{"pq_passwd_double_quote", `pq: FATAL: passwd="multi word secret" invalid`, []string{"multi word secret", "word secret"}},
+	{"pq_pwd_single_quote", `pq: FATAL: pwd='abc 123 def' invalid`, []string{"abc 123 def", "123 def"}},
+	{"pq_pwd_double_quote", `pq: FATAL: pwd="abc 123 def" invalid`, []string{"abc 123 def", "123 def"}},
 	{"pq_user_double_quote", `pq: password auth failed for user "dbadmin"`, []string{`"dbadmin"`}},
 	{"pq_user_single_quote", `pq: password auth failed for user 'dbadmin'`, []string{`'dbadmin'`}},
 	{"url_postgres", `dial postgres://app:p4ssw0rd@db:5432`, []string{"p4ssw0rd", "app:"}},
