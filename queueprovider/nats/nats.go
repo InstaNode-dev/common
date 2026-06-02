@@ -389,8 +389,12 @@ func (p *Provider) RevokeTenantCredentials(ctx context.Context, keyID string) er
 	accClaims.Name = val.accountJWT // placeholder — re-encoding deletes effectively
 	// Set the account "Deleted" flag by zeroing limits and pushing.
 	accClaims.Limits.JetStreamLimits = jwt.JetStreamLimits{}
+	// Conn: 0 means "zero connections allowed" — i.e. fully revoked. A NEGATIVE
+	// value (-1) means UNLIMITED in NATS account limits, which would do the
+	// exact opposite of revocation and let a deleted/revoked tenant keep
+	// connecting. Must be 0 to disable the account.
 	accClaims.Limits.AccountLimits = jwt.AccountLimits{
-		Conn: -1,
+		Conn: 0,
 	}
 	accClaims.Exports = jwt.Exports{}
 	accClaims.Imports = jwt.Imports{}
