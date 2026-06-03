@@ -412,6 +412,8 @@ func TestRegistry_TierHelpers(t *testing.T) {
 	assert.Equal(t, "Pro", r.DisplayName("pro"))
 	assert.False(t, r.IsDedicatedTier("pro"))
 	assert.True(t, r.IsDedicatedTier("growth"))
+	// bug bash #12: Team ($199, above Growth) also gets dedicated infra.
+	assert.True(t, r.IsDedicatedTier("team"))
 	// W11: hobby_plus is the mid-tier — $19/mo, custom domains, 2 apps.
 	assert.Equal(t, 1900, r.PriceMonthly("hobby_plus"),
 		"hobby_plus monthly price must be $19/mo (1900 cents)")

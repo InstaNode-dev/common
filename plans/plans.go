@@ -886,6 +886,7 @@ plans:
       alerts: true
       custom_domains: true
       sla: true
+      dedicated: true # Team gets dedicated infra like Growth (bug bash #12)
   # team_yearly mirrors team exactly. $1990/yr = $199 x 10 ("2 months free" vs $199 x 12).
   team_yearly:
     display_name: "Team (yearly)"
@@ -920,6 +921,7 @@ plans:
       alerts: true
       custom_domains: true
       sla: true
+      dedicated: true # mirrors team (bug bash #12)
   growth:
     display_name: "Growth"
     price_monthly_cents: 9900
