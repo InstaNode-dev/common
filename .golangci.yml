@@ -25,6 +25,16 @@ linters:
         linters:
           - errcheck
           - gocyclo
+      # SA5011 (possible nil pointer dereference) in test files fires on the
+      # idiomatic `got := f(); if got == nil { t.Fatalf(...) }; got.X` pattern —
+      # a nil deref in a test panics and fails loudly, so it carries no
+      # production signal. Suppressed by-check in _test.go only; production
+      # SA5011 still fails the build. golangci's analysis cache masks these
+      # until a cache-busting change (e.g. a go.mod bump) re-analyses.
+      - path: _test\.go
+        linters:
+          - staticcheck
+        text: "SA5011"
 
 issues:
   max-issues-per-linter: 0
