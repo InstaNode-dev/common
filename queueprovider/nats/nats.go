@@ -422,6 +422,15 @@ func (p *Provider) RevokeWithSeed(ctx context.Context, accountSeed string) error
 	}
 	accClaims := jwt.NewAccountClaims(pub)
 	accClaims.Limits.JetStreamLimits = jwt.JetStreamLimits{}
+	// Conn: 0 means "zero connections allowed" — i.e. fully revoked. Must match
+	// the primary RevokeTenantCredentials path above: stripping JetStream alone
+	// leaves the account able to OPEN NATS connections, so a tenant revoked via
+	// this seed path (provisioner teardown after restart, empty accountCache)
+	// would be only partially revoked. A NEGATIVE value (-1) means UNLIMITED in
+	// NATS account limits — the opposite of revocation. Must be 0.
+	accClaims.Limits.AccountLimits = jwt.AccountLimits{
+		Conn: 0,
+	}
 	accClaims.Exports = jwt.Exports{}
 	accClaims.Imports = jwt.Imports{}
 	revokedJWT, err := accClaims.Encode(p.operatorKP)

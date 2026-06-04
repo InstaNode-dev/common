@@ -281,3 +281,71 @@ func TestNATS_IssueExposesAccountSeed_AndRevokeWithSeed_RoundTrips(t *testing.T)
 	assert.Equal(t, creds.KeyID, pusher.pushes[1].Pub,
 		"revocation push must target the same account public key as the original issue")
 }
+
+// TestNATS_RevokeWithSeed_ZeroesConnLimit_MatchesPrimaryPath is the regression
+// guard for M12. The primary revoke path (RevokeTenantCredentials) sets
+// AccountLimits.Conn = 0 ("zero connections allowed = fully revoked") but the
+// seed path (RevokeWithSeed) historically only stripped JetStream/Exports/
+// Imports — leaving a revoked tenant able to OPEN NATS connections. This test
+// decodes BOTH revocation JWTs and asserts the seed path's account limits match
+// the primary path's, so a future edit that drops the Conn lockdown reds here.
+//
+// Coverage block (rule 17):
+//
+//	Symptom:        tenant revoked via seed path (post-restart teardown) can still open NATS connections — JetStream stripped but Conn limit left unbounded
+//	Enumeration:    rg -n "AccountLimits|Limits.Conn|RevokeWithSeed|RevokeTenantCredentials" common/queueprovider/nats/nats.go
+//	Sites found:    2 revoke paths (RevokeTenantCredentials ~396, RevokeWithSeed ~424)
+//	Sites touched:  1 (RevokeWithSeed — primary path already correct; this test pins parity)
+//	Coverage test:  this test — fails the moment RevokeWithSeed's Conn != 0 or drifts from the primary path
+func TestNATS_RevokeWithSeed_ZeroesConnLimit_MatchesPrimaryPath(t *testing.T) {
+	seed := newOperatorSeed(t)
+	p, err := queueprovider.Factory(queueprovider.Config{
+		Backend:          "nats",
+		Host:             "nats.test.local",
+		NATSOperatorSeed: seed,
+	})
+	require.NoError(t, err)
+	natsProv := p.(*natsprov.Provider)
+	pusher := &recordingPusher{}
+	natsProv.SetResolverPusher(pusher)
+
+	creds, err := p.IssueTenantCredentials(context.Background(), queueprovider.IssueRequest{
+		ResourceToken: "tok-conn-lockdown",
+		Subject:       "tenant_connlockdown.",
+	})
+	require.NoError(t, err)
+	require.Len(t, pusher.pushes, 1, "issue should have pushed once")
+
+	// Primary path: revoke via cached account (cache still warm).
+	err = p.RevokeTenantCredentials(context.Background(), creds.KeyID)
+	require.NoError(t, err)
+	require.Len(t, pusher.pushes, 2)
+	primaryClaims, err := natsjwt.DecodeAccountClaims(pusher.pushes[1].JWT)
+	require.NoError(t, err, "primary revocation JWT must decode")
+	assert.Equal(t, int64(0), primaryClaims.Limits.Conn,
+		"primary revoke path must set Conn = 0 (baseline for parity)")
+
+	// Seed path: simulate a process restart (empty accountCache) and revoke
+	// via the stored account seed.
+	natsProv.PurgeAccountCacheForTest()
+	err = natsProv.RevokeWithSeed(context.Background(), creds.AccountSeed)
+	require.NoError(t, err)
+	require.Len(t, pusher.pushes, 3)
+	seedClaims, err := natsjwt.DecodeAccountClaims(pusher.pushes[2].JWT)
+	require.NoError(t, err, "seed-path revocation JWT must decode")
+
+	// The fix: seed path must zero Conn just like the primary path. A tenant
+	// revoked after a restart must NOT be able to open connections.
+	assert.Equal(t, int64(0), seedClaims.Limits.Conn,
+		"RevokeWithSeed must set AccountLimits.Conn = 0 — otherwise a seed-path-revoked tenant can still open NATS connections (full revocation regression)")
+
+	// Parity: the seed path's revocation account limits must match the primary
+	// path's. If the primary path ever zeroes additional caps, this fails until
+	// the seed path mirrors them.
+	assert.Equal(t, primaryClaims.Limits.AccountLimits, seedClaims.Limits.AccountLimits,
+		"RevokeWithSeed AccountLimits must match RevokeTenantCredentials' for full revocation parity")
+	assert.Equal(t, primaryClaims.Limits.JetStreamLimits, seedClaims.Limits.JetStreamLimits,
+		"RevokeWithSeed JetStreamLimits must match the primary path's")
+	assert.Empty(t, seedClaims.Exports, "seed-path revocation must strip exports like the primary path")
+	assert.Empty(t, seedClaims.Imports, "seed-path revocation must strip imports like the primary path")
+}
