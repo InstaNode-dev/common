@@ -13,7 +13,10 @@ const (
 	BackendStatic = "static"
 
 	// BackendFlagd is the OpenFeature SDK + flagd backend (gRPC streaming).
-	// Requires a reachable flagd; absence degrades to BackendStatic.
+	// IMPL DEFERRED to a follow-up PR (ships with the flagd deployment; its
+	// OpenFeature+flagd dep tree carries GO-2026-4279 until flagd/core >=
+	// v0.13.1). Until registered, config "flagd" degrades to BackendStatic
+	// (fail-closed) via the factory — same safety, no vulnerable deps in-tree.
 	BackendFlagd = "flagd"
 )
 

@@ -27,22 +27,19 @@ import (
 	"instant.dev/common/featureflag"
 
 	// side-effect imports register each backend with the registry.
-	_ "instant.dev/common/featureflag/flagd"
+	// NOTE: the flagd backend is deferred to a follow-up PR (it ships with the
+	// flagd deployment and pulls the OpenFeature+flagd dep tree, which carries
+	// GO-2026-4279 until flagd/core >= v0.13.1). Config "flagd" currently
+	// degrades to the static backend (fail-closed) via the factory. Until then
+	// the registry holds only `static`, and the contract below still iterates it.
 	_ "instant.dev/common/featureflag/static"
 )
 
 // configForBackend returns the minimum Config to construct each backend such
 // that it has NO usable flag source — so every evaluation MUST fall back to the
-// caller default. For flagd we point at an unreachable port so resolution
-// fails; for static we supply no flags. Both must fail closed.
+// caller default (static: supply no flags). Must fail closed.
 func configForBackend(name string) featureflag.Config {
-	cfg := featureflag.Config{Backend: name}
-	if name == featureflag.BackendFlagd {
-		// Unreachable flagd: every eval errors -> wrapper returns default.
-		cfg.FlagdHost = "127.0.0.1"
-		cfg.FlagdPort = 1 // nothing listens; resolution fails fast/closed
-	}
-	return cfg
+	return featureflag.Config{Backend: name}
 }
 
 // TestRegistry_AllBackendsFailClosed is the rule-18 contract test. It iterates
@@ -50,8 +47,8 @@ func configForBackend(name string) featureflag.Config {
 // failure surfaces, for all three typed accessors.
 func TestRegistry_AllBackendsFailClosed(t *testing.T) {
 	registered := featureflag.ListRegistered()
-	require.GreaterOrEqual(t, len(registered), 2,
-		"expected at least 2 backends registered (static, flagd); got %v", registered)
+	require.GreaterOrEqual(t, len(registered), 1,
+		"expected at least 1 backend registered (static; flagd deferred to a follow-up PR); got %v", registered)
 
 	for _, name := range registered {
 		name := name
