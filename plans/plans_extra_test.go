@@ -53,9 +53,11 @@ func TestConnectionsLimit(t *testing.T) {
 
 func TestTeamMemberLimit_DefaultsByTier(t *testing.T) {
 	r := plans.Default()
-	// team => -1 unlimited
-	if got := r.TeamMemberLimit("team"); got != -1 {
-		t.Errorf("team = %d, want -1", got)
+	// strict-80% margin redesign (2026-06-05): team.team_members is now a
+	// finite 25 (was -1 unlimited). The YAML value takes precedence over the
+	// built-in fallback in TeamMemberLimit.
+	if got := r.TeamMemberLimit("team"); got != 25 {
+		t.Errorf("team = %d, want 25", got)
 	}
 	// pro fallback default = 5 unless overridden in YAML (it may also be set
 	// explicitly; both are acceptable provided it's > 1).
