@@ -427,7 +427,9 @@ func TestVaultMaxEntries_Tiers(t *testing.T) {
 	assert.Equal(t, 50, r.VaultMaxEntries("hobby_plus"),
 		"hobby_plus must allow 50 vault entries (mid-tier between hobby:20 and pro:200)")
 	assert.Equal(t, 200, r.VaultMaxEntries("pro"))
-	assert.Equal(t, -1, r.VaultMaxEntries("team"))
+	// strict-80% margin redesign (2026-06-05): team.vault_max_entries is now a
+	// finite 1000 (was -1 unlimited).
+	assert.Equal(t, 1000, r.VaultMaxEntries("team"))
 }
 
 func TestVaultEnvsAllowed_HobbyIsProductionOnly(t *testing.T) {
@@ -450,7 +452,9 @@ func TestDeploymentsAppsLimit_Tiers(t *testing.T) {
 	assert.Equal(t, 2, r.DeploymentsAppsLimit("hobby_plus"),
 		"hobby_plus must allow 2 deployment apps (doubles hobby's 1, vs pro's 10)")
 	assert.Equal(t, 10, r.DeploymentsAppsLimit("pro"))
-	assert.Equal(t, -1, r.DeploymentsAppsLimit("team"))
+	// strict-80% margin redesign (2026-06-05): team.deployments_apps is now a
+	// finite 100 (was -1 unlimited); justified by forthcoming scale-to-zero.
+	assert.Equal(t, 100, r.DeploymentsAppsLimit("team"))
 	assert.Equal(t, 50, r.DeploymentsAppsLimit("growth"),
 		"growth allows 50 deployment apps (wave-3 BugBash bumped from 5 → 50, matching plans.yaml)")
 }

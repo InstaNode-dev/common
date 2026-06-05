@@ -575,8 +575,10 @@ plans:
       mongodb_storage_mb: 5
       mongodb_connections: 2
       mongodb_ops_per_minute: 100
-      queue_storage_mb: 1024
-      queue_count: -1
+      # strict-80% margin redesign (2026-06-05): queue 1024 → 64 MB;
+      # queue_count -1 → 1 (0 means unlimited via QueueCountLimit, so 1).
+      queue_storage_mb: 64
+      queue_count: 1
       storage_storage_mb: 10
       webhook_requests_stored: 100
       team_members: 1
@@ -612,8 +614,9 @@ plans:
       mongodb_storage_mb: 5
       mongodb_connections: 2
       mongodb_ops_per_minute: 100
-      queue_storage_mb: 1024
-      queue_count: -1
+      # strict-80% margin redesign (2026-06-05): mirror anonymous.
+      queue_storage_mb: 64
+      queue_count: 1
       storage_storage_mb: 10
       webhook_requests_stored: 100
       team_members: 1
@@ -644,7 +647,8 @@ plans:
       mongodb_storage_mb: 100
       mongodb_connections: 5
       mongodb_ops_per_minute: 1000
-      queue_storage_mb: 5120
+      # strict-80% margin redesign (2026-06-05): queue 5120 → 2048 MB.
+      queue_storage_mb: 2048
       queue_count: 3
       storage_storage_mb: 512
       webhook_requests_stored: 1000
@@ -769,7 +773,8 @@ plans:
       mongodb_storage_mb: 100
       mongodb_connections: 5
       mongodb_ops_per_minute: 1000
-      queue_storage_mb: 5120
+      # strict-80% margin redesign (2026-06-05): queue 5120 → 2048 MB (mirror hobby).
+      queue_storage_mb: 2048
       queue_count: 3
       storage_storage_mb: 512
       webhook_requests_stored: 1000
@@ -802,7 +807,8 @@ plans:
       mongodb_storage_mb: 5120
       mongodb_connections: 20
       mongodb_ops_per_minute: 10000
-      queue_storage_mb: 10240
+      # strict-80% margin redesign (2026-06-05): queue 10240 → 5120 MB.
+      queue_storage_mb: 5120
       queue_count: 20
       storage_storage_mb: 51200
       webhook_requests_stored: 10000
@@ -836,7 +842,8 @@ plans:
       mongodb_storage_mb: 5120
       mongodb_connections: 20
       mongodb_ops_per_minute: 10000
-      queue_storage_mb: 10240
+      # strict-80% margin redesign (2026-06-05): queue 10240 → 5120 MB (mirror pro).
+      queue_storage_mb: 5120
       queue_count: 20
       storage_storage_mb: 51200
       webhook_requests_stored: 10000
@@ -858,24 +865,27 @@ plans:
     display_name: "Team"
     price_monthly_cents: 19900
     limits:
+      # strict-80% margin redesign (2026-06-05): every -1 retired to finite
+      # caps (mirrors api/plans.yaml). Above Team = Enterprise/contact-sales.
+      # Team stays GATED (no checkout). Hard-caps only.
       provisions_per_day: -1
-      postgres_storage_mb: -1
-      postgres_connections: -1
-      vector_storage_mb: -1
-      vector_connections: -1
-      redis_memory_mb: -1
-      redis_commands_per_day: -1
-      mongodb_storage_mb: -1
-      mongodb_connections: -1
-      mongodb_ops_per_minute: -1
-      queue_storage_mb: -1
-      queue_count: -1
-      storage_storage_mb: -1
-      webhook_requests_stored: -1
-      team_members: -1
-      vault_max_entries: -1
+      postgres_storage_mb: 51200
+      postgres_connections: 100
+      vector_storage_mb: 30720
+      vector_connections: 100
+      redis_memory_mb: 1536
+      redis_commands_per_day: 10000000
+      mongodb_storage_mb: 40960
+      mongodb_connections: 50
+      mongodb_ops_per_minute: 50000
+      queue_storage_mb: 40960
+      queue_count: 100
+      storage_storage_mb: 307200
+      webhook_requests_stored: 100000
+      team_members: 25
+      vault_max_entries: 1000
       vault_envs_allowed: []
-      deployments_apps: -1
+      deployments_apps: 100
       backup_retention_days: 90
       backup_restore_enabled: true
       manual_backups_per_day: 1000
@@ -893,24 +903,25 @@ plans:
     price_monthly_cents: 199000
     billing_period: "yearly"
     limits:
+      # strict-80% margin redesign (2026-06-05): mirror team monthly.
       provisions_per_day: -1
-      postgres_storage_mb: -1
-      postgres_connections: -1
-      vector_storage_mb: -1
-      vector_connections: -1
-      redis_memory_mb: -1
-      redis_commands_per_day: -1
-      mongodb_storage_mb: -1
-      mongodb_connections: -1
-      mongodb_ops_per_minute: -1
-      queue_storage_mb: -1
-      queue_count: -1
-      storage_storage_mb: -1
-      webhook_requests_stored: -1
-      team_members: -1
-      vault_max_entries: -1
+      postgres_storage_mb: 51200
+      postgres_connections: 100
+      vector_storage_mb: 30720
+      vector_connections: 100
+      redis_memory_mb: 1536
+      redis_commands_per_day: 10000000
+      mongodb_storage_mb: 40960
+      mongodb_connections: 50
+      mongodb_ops_per_minute: 50000
+      queue_storage_mb: 40960
+      queue_count: 100
+      storage_storage_mb: 307200
+      webhook_requests_stored: 100000
+      team_members: 25
+      vault_max_entries: 1000
       vault_envs_allowed: []
-      deployments_apps: -1
+      deployments_apps: 100
       backup_retention_days: 90
       backup_restore_enabled: true
       manual_backups_per_day: 1000
@@ -928,19 +939,21 @@ plans:
     limits:
       provisions_per_day: -1
       # 2026-05-15: bumped to stay above Pro after Pro storage bump.
+      # strict-80% margin redesign (2026-06-05): every -1 retired to finite
+      # caps (mirrors api/plans.yaml). Hard-caps only.
       postgres_storage_mb: 20480
       postgres_connections: 20
-      vector_storage_mb: 20480
+      vector_storage_mb: 10240
       vector_connections: 20
       redis_memory_mb: 1024
-      redis_commands_per_day: -1
-      mongodb_storage_mb: -1
-      mongodb_connections: -1
-      mongodb_ops_per_minute: -1
-      queue_storage_mb: -1
-      queue_count: -1
-      storage_storage_mb: -1
-      webhook_requests_stored: -1
+      redis_commands_per_day: 5000000
+      mongodb_storage_mb: 20480
+      mongodb_connections: 50
+      mongodb_ops_per_minute: 50000
+      queue_storage_mb: 20480
+      queue_count: 50
+      storage_storage_mb: 153600
+      webhook_requests_stored: 100000
       team_members: 10
       vault_max_entries: 200
       vault_envs_allowed: []
