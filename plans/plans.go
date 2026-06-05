@@ -52,6 +52,26 @@ type Limits struct {
 	// unbounded queue creation is an operational risk against the cluster.
 	QueueCount int `yaml:"queue_count"`
 
+	// PostgresCount / VectorCount / RedisCount / MongoCount / StorageCount are the
+	// per-service active-resource-count caps. Each mirrors QueueCount exactly:
+	// -1 means unlimited; 0 means the tier cannot provision that service at all.
+	//
+	// Task #55 (strict-≥80%-margin redesign, 2026-06-05): before this, only
+	// queue_count was capped, so a tenant could create MANY postgres/redis/mongo
+	// resources each at the per-resource size cap and blow the saturated-COGS
+	// bound. The invariant is `count × per-resource-size-cap × unit-COGS ≤ the
+	// tier's 20%-of-price budget` per service, with Redis the binding constraint
+	// ($6.50/GB-mo — see docs/.../PRICING-MARGIN-MODEL-AND-TEAM-REDESIGN.md).
+	//
+	// Enforcement in api/ is FLAG-GATED behind RESOURCE_COUNT_CAPS_ENABLED
+	// (default false) — these fields are inert until the operator flips the flag,
+	// so shipping them cannot surprise-break existing heavy tenants with a 402.
+	PostgresCount int `yaml:"postgres_count"`
+	VectorCount   int `yaml:"vector_count"`
+	RedisCount    int `yaml:"redis_count"`
+	MongoCount    int `yaml:"mongodb_count"`
+	StorageCount  int `yaml:"storage_count"`
+
 	// StorageStorageMB is the maximum object storage per R2 prefix in megabytes.
 	StorageStorageMB int `yaml:"storage_storage_mb"`
 
@@ -492,6 +512,83 @@ func (r *Registry) QueueCountLimit(tier string) int {
 	return p.Limits.QueueCount
 }
 
+// ResourceCountLimit returns the per-tier active-resource-count cap for a
+// provisionable service ("postgres", "vector", "redis", "mongodb", "storage",
+// "queue"). It is the single registry-driven accessor the api enforcement
+// blocks call so that adding a new service is one switch arm here, not a new
+// bespoke accessor + handler pattern (rule 18 — registry-driven, not hand-typed).
+//
+// Semantics mirror QueueCountLimit exactly:
+//   - -1 means unlimited;
+//   - a zero struct value (the YAML field was absent on an older plans.yaml) is
+//     treated as unlimited (-1) so a stale config never blocks an existing
+//     customer — once plans.yaml has every *_count, this zero-fallback is inert;
+//   - any positive value is the hard cap.
+//
+// An unknown service name returns -1 (fail open) — a typo in a caller must never
+// block a provision. The mapping is the single place that knows which struct
+// field backs which service string.
+func (r *Registry) ResourceCountLimit(tier, service string) int {
+	switch service {
+	case "queue":
+		return r.QueueCountLimit(tier)
+	case "postgres":
+		return r.PostgresCountLimit(tier)
+	case "vector":
+		return r.VectorCountLimit(tier)
+	case "redis":
+		return r.RedisCountLimit(tier)
+	case "mongodb":
+		return r.MongoCountLimit(tier)
+	case "storage":
+		return r.StorageCountLimit(tier)
+	default:
+		return -1 // unknown service — fail open
+	}
+}
+
+// PostgresCountLimit returns the max active Postgres resources for the tier.
+// -1 unlimited; 0 → unlimited fallback (absent YAML field). See ResourceCountLimit.
+func (r *Registry) PostgresCountLimit(tier string) int {
+	return r.countLimit(tier, func(l Limits) int { return l.PostgresCount })
+}
+
+// VectorCountLimit returns the max active pgvector resources for the tier.
+func (r *Registry) VectorCountLimit(tier string) int {
+	return r.countLimit(tier, func(l Limits) int { return l.VectorCount })
+}
+
+// RedisCountLimit returns the max active Redis resources for the tier. Redis is
+// the binding COGS constraint ($6.50/GB-mo), so this is the most conservative cap.
+func (r *Registry) RedisCountLimit(tier string) int {
+	return r.countLimit(tier, func(l Limits) int { return l.RedisCount })
+}
+
+// MongoCountLimit returns the max active MongoDB resources for the tier.
+func (r *Registry) MongoCountLimit(tier string) int {
+	return r.countLimit(tier, func(l Limits) int { return l.MongoCount })
+}
+
+// StorageCountLimit returns the max active object-storage resources for the tier.
+func (r *Registry) StorageCountLimit(tier string) int {
+	return r.countLimit(tier, func(l Limits) int { return l.StorageCount })
+}
+
+// countLimit is the shared zero-as-unlimited fallback used by every *CountLimit
+// accessor. Mirrors QueueCountLimit's semantics so all count caps behave
+// identically: unknown tier or absent field → -1 (unlimited / fail open).
+func (r *Registry) countLimit(tier string, pick func(Limits) int) int {
+	p := r.Get(tier)
+	if p == nil {
+		return -1 // unknown tier — fail open
+	}
+	v := pick(p.Limits)
+	if v == 0 {
+		return -1 // absent YAML field — treat as unlimited (inert zero-fallback)
+	}
+	return v
+}
+
 // BackupRetentionDays returns how long the worker keeps Postgres backups for
 // the given tier. 0 means no backups are taken.
 func (r *Registry) BackupRetentionDays(tier string) int {
@@ -579,6 +676,13 @@ plans:
       # queue_count -1 → 1 (0 means unlimited via QueueCountLimit, so 1).
       queue_storage_mb: 64
       queue_count: 1
+      # Task #55 resource-count caps (flag-gated, default OFF in api). anonymous
+      # is also fingerprint-dedup-gated; 1 each keeps the saturated-COGS bound.
+      postgres_count: 1
+      vector_count: 1
+      redis_count: 1
+      mongodb_count: 1
+      storage_count: 1
       storage_storage_mb: 10
       webhook_requests_stored: 100
       team_members: 1
@@ -617,6 +721,12 @@ plans:
       # strict-80% margin redesign (2026-06-05): mirror anonymous.
       queue_storage_mb: 64
       queue_count: 1
+      # Task #55 resource-count caps — mirror anonymous (claim flip must not widen).
+      postgres_count: 1
+      vector_count: 1
+      redis_count: 1
+      mongodb_count: 1
+      storage_count: 1
       storage_storage_mb: 10
       webhook_requests_stored: 100
       team_members: 1
@@ -650,6 +760,13 @@ plans:
       # strict-80% margin redesign (2026-06-05): queue 5120 → 2048 MB.
       queue_storage_mb: 2048
       queue_count: 3
+      # Task #55 resource-count caps. hobby budget=$1.80 (20% of $9); redis
+      # 2×50MB×$6.50/GB=$0.65 — well within budget, redis kept conservative.
+      postgres_count: 2
+      vector_count: 2
+      redis_count: 2
+      mongodb_count: 2
+      storage_count: 2
       storage_storage_mb: 512
       webhook_requests_stored: 1000
       team_members: 1
@@ -690,6 +807,13 @@ plans:
       mongodb_ops_per_minute: 1000
       queue_storage_mb: 5120
       queue_count: 5
+      # Task #55 resource-count caps. hobby_plus budget=$3.80; redis
+      # 3×50MB×$6.50/GB=$0.98 — conservative; every service ≤ its budget max.
+      postgres_count: 3
+      vector_count: 3
+      redis_count: 3
+      mongodb_count: 3
+      storage_count: 3
       storage_storage_mb: 5120
       webhook_requests_stored: 5000
       team_members: 1
@@ -731,6 +855,13 @@ plans:
       mongodb_ops_per_minute: 1000
       queue_storage_mb: 5120
       queue_count: 5
+      # Task #55 resource-count caps. hobby_plus budget=$3.80; redis
+      # 3×50MB×$6.50/GB=$0.98 — conservative; every service ≤ its budget max.
+      postgres_count: 3
+      vector_count: 3
+      redis_count: 3
+      mongodb_count: 3
+      storage_count: 3
       storage_storage_mb: 5120
       webhook_requests_stored: 5000
       team_members: 1
@@ -776,6 +907,13 @@ plans:
       # strict-80% margin redesign (2026-06-05): queue 5120 → 2048 MB (mirror hobby).
       queue_storage_mb: 2048
       queue_count: 3
+      # Task #55 resource-count caps. hobby budget=$1.80 (20% of $9); redis
+      # 2×50MB×$6.50/GB=$0.65 — well within budget, redis kept conservative.
+      postgres_count: 2
+      vector_count: 2
+      redis_count: 2
+      mongodb_count: 2
+      storage_count: 2
       storage_storage_mb: 512
       webhook_requests_stored: 1000
       team_members: 1
@@ -810,6 +948,14 @@ plans:
       # strict-80% margin redesign (2026-06-05): queue 10240 → 5120 MB.
       queue_storage_mb: 5120
       queue_count: 20
+      # Task #55 resource-count caps. pro budget=$9.80; redis is binding:
+      # 512MB×$6.50/GB=$3.25/res → max 3 in budget, so redis_count=3. pg/vec
+      # 10GB×$0.15=$1.50/res → 5 ≤ 6.5 budget-max. storage 50GB×$0.02=$1/res → 5.
+      postgres_count: 5
+      vector_count: 5
+      redis_count: 3
+      mongodb_count: 5
+      storage_count: 5
       storage_storage_mb: 51200
       webhook_requests_stored: 10000
       team_members: 5
@@ -845,6 +991,14 @@ plans:
       # strict-80% margin redesign (2026-06-05): queue 10240 → 5120 MB (mirror pro).
       queue_storage_mb: 5120
       queue_count: 20
+      # Task #55 resource-count caps. pro budget=$9.80; redis is binding:
+      # 512MB×$6.50/GB=$3.25/res → max 3 in budget, so redis_count=3. pg/vec
+      # 10GB×$0.15=$1.50/res → 5 ≤ 6.5 budget-max. storage 50GB×$0.02=$1/res → 5.
+      postgres_count: 5
+      vector_count: 5
+      redis_count: 3
+      mongodb_count: 5
+      storage_count: 5
       storage_storage_mb: 51200
       webhook_requests_stored: 10000
       team_members: 5
@@ -880,6 +1034,15 @@ plans:
       mongodb_ops_per_minute: 50000
       queue_storage_mb: 40960
       queue_count: 100
+      # Task #55 resource-count caps. team budget=$39.80; redis binding:
+      # 1.5GB×$6.50/GB=$9.75/res → max 4 in budget, redis_count=4. pg 50GB×
+      # $0.15=$7.50/res → 5 ≤ 5.3 budget-max; mongo 40GB×$0.15=$6 → 6 ≤ 6.6;
+      # storage 300GB×$0.02=$6 → 6 ≤ 6.6; vector 30GB×$0.15=$4.5 → 8 ≤ 8.8.
+      postgres_count: 5
+      vector_count: 8
+      redis_count: 4
+      mongodb_count: 6
+      storage_count: 6
       storage_storage_mb: 307200
       webhook_requests_stored: 100000
       team_members: 25
@@ -916,6 +1079,15 @@ plans:
       mongodb_ops_per_minute: 50000
       queue_storage_mb: 40960
       queue_count: 100
+      # Task #55 resource-count caps. team budget=$39.80; redis binding:
+      # 1.5GB×$6.50/GB=$9.75/res → max 4 in budget, redis_count=4. pg 50GB×
+      # $0.15=$7.50/res → 5 ≤ 5.3 budget-max; mongo 40GB×$0.15=$6 → 6 ≤ 6.6;
+      # storage 300GB×$0.02=$6 → 6 ≤ 6.6; vector 30GB×$0.15=$4.5 → 8 ≤ 8.8.
+      postgres_count: 5
+      vector_count: 8
+      redis_count: 4
+      mongodb_count: 6
+      storage_count: 6
       storage_storage_mb: 307200
       webhook_requests_stored: 100000
       team_members: 25
@@ -952,6 +1124,15 @@ plans:
       mongodb_ops_per_minute: 50000
       queue_storage_mb: 20480
       queue_count: 50
+      # Task #55 resource-count caps. growth budget=$19.80; redis binding:
+      # 1GB×$6.50/GB=$6.50/res → max 3 in budget, redis_count=3. pg 20GB×
+      # $0.15=$3/res → 6 ≤ 6.6 budget-max; mongo 20GB×$0.15=$3 → 6 ≤ 6.6;
+      # storage 150GB×$0.02=$3 → 6 ≤ 6.6; vector 10GB×$0.15=$1.5 → 6 ≤ 13.2.
+      postgres_count: 6
+      vector_count: 6
+      redis_count: 3
+      mongodb_count: 6
+      storage_count: 6
       storage_storage_mb: 153600
       webhook_requests_stored: 100000
       team_members: 10
