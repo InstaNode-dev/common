@@ -21,6 +21,14 @@ const (
 	// every other dashboard can exclude this traffic from real KPIs.
 	EventFlowTest = "InstantFlowTest"
 
+	// EventPaymentProbe is one Layer-3 payment-prober leg result per tick,
+	// pushed by the worker's payment_probe synthetic. Carries cohort="synthetic"
+	// so business/billing dashboards exclude it from real revenue KPIs. It is
+	// the money-path heartbeat companion to EventFlowTest (one event per probe
+	// leg: checkout_reachable / billing_state / invoices_reachable /
+	// webhook_security / upgrade_webhook_e2e).
+	EventPaymentProbe = "InstantPaymentProbe"
+
 	// EventChurnSignal flags a behavioral churn indicator on a paid team (e.g.
 	// no activity in N days). Feeds the churn-trend tile (WS4-P5).
 	EventChurnSignal = "InstantChurnSignal"
@@ -89,6 +97,7 @@ const (
 	AttrReason         = "reason"         // short failure reason (free text, no PII)
 	AttrLatencyMs      = "latencyMs"      // observed latency in milliseconds
 	AttrSyntheticRunID = "syntheticRunId" // groups all flows from one prober tick
+	AttrHTTPStatus     = "httpStatus"     // HTTP status code observed on the probed endpoint (0 = no response)
 
 	// Generic event metadata (non-PII; allowlisted).
 	AttrService    = "service"    // free-form sub-service / handler name
@@ -156,6 +165,60 @@ func RecordFlowTest(ctx context.Context, e Emitter, f FlowTest) {
 		return
 	}
 	e.Record(ctx, EventFlowTest, f.Attrs())
+}
+
+// PaymentProbe is the typed payload for an [EventPaymentProbe] custom event,
+// matching the Layer-3 payment-prober contract (docs/ci/FORUM-PAYMENT-E2E-TOOLING.md
+// §4 Layer 3). Use [Emitter] with [PaymentProbe.Attrs] (or the
+// [RecordPaymentProbe] helper) instead of hand-building the map at each call site.
+// One event per probe leg per tick.
+type PaymentProbe struct {
+	// Leg is the payment-funnel leg under test ("checkout_reachable",
+	// "billing_state", "invoices_reachable", "webhook_security",
+	// "upgrade_webhook_e2e"). Emitted under [AttrFlow] so the matrix grid keys on
+	// the same attribute as flow tests.
+	Leg string
+	// Result is the outcome (pass / fail / "degraded").
+	Result string
+	// LatencyMs is the observed leg latency in milliseconds.
+	LatencyMs int64
+	// Reason is a short, PII-free outcome reason (empty on a clean pass).
+	Reason string
+	// HTTPStatus is the status code observed on the probed endpoint (0 = no
+	// response, e.g. a config-skipped leg or a transport error).
+	HTTPStatus int
+	// SyntheticRunID groups every leg from one prober tick (UUID).
+	SyntheticRunID string
+}
+
+// Attrs renders a [PaymentProbe] into the flat attribute map an [Emitter]
+// consumes. Cohort is always [CohortSynthetic] so billing/revenue dashboards
+// exclude probe traffic. The leg is emitted under [AttrFlow] (the same matrix
+// axis flow tests use). Empty/zero fields are omitted so an absent value reads
+// as "missing" in NRQL. Already allowlist-clean (no PII keys).
+func (p PaymentProbe) Attrs() map[string]any {
+	out := make(map[string]any, 6)
+	putStr(out, AttrFlow, p.Leg)
+	putStr(out, AttrResult, p.Result)
+	putStr(out, AttrReason, p.Reason)
+	putStr(out, AttrSyntheticRunID, p.SyntheticRunID)
+	out[AttrLatencyMs] = p.LatencyMs
+	if p.HTTPStatus != 0 {
+		out[AttrHTTPStatus] = p.HTTPStatus
+	}
+	out[AttrCohort] = CohortSynthetic
+	return out
+}
+
+// RecordPaymentProbe is the ergonomic typed helper for the Layer-3 payment
+// prober: it builds the [EventPaymentProbe] attribute map from a [PaymentProbe]
+// and records it. Fire-and-forget, same fail-open contract as [Emitter.Record]
+// (a nil emitter is a no-op).
+func RecordPaymentProbe(ctx context.Context, e Emitter, p PaymentProbe) {
+	if e == nil {
+		return
+	}
+	e.Record(ctx, EventPaymentProbe, p.Attrs())
 }
 
 // putStr sets out[key]=val only when val is non-empty, so callers can build a
