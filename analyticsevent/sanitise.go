@@ -37,6 +37,7 @@ var AllowedAttributes = map[string]struct{}{
 	AttrReason:         {},
 	AttrLatencyMs:      {},
 	AttrSyntheticRunID: {},
+	AttrHTTPStatus:     {},
 	// generic metadata
 	AttrService:    {},
 	AttrReasonCode: {},
