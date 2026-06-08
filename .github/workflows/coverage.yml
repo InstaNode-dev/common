@@ -31,7 +31,7 @@ jobs:
       - name: Generate coverage
         working-directory: common
         run: go test ./... -short -coverprofile=coverage.out -covermode=atomic
-      - uses: codecov/codecov-action@v6
+      - uses: codecov/codecov-action@v7
         if: always()
         with:
           files: common/coverage.out
