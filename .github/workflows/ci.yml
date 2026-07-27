@@ -20,7 +20,7 @@ jobs:
           path: _proto_ci
       - run: mv _proto_ci ../proto
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
 
