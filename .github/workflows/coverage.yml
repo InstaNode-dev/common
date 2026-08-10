@@ -25,7 +25,7 @@ jobs:
           repository: InstaNode-dev/proto
           path: proto
         continue-on-error: true
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: common/go.mod
       - name: Generate coverage
@@ -44,7 +44,7 @@ jobs:
       # Tool: diff-cover (https://github.com/Bachmann1234/diff-cover) reads a
       # Cobertura report + the git diff vs the base branch.
       # ------------------------------------------------------------------
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         if: github.event_name == 'pull_request'
         with:
           python-version: '3.12'
